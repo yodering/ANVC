@@ -1,0 +1,52 @@
+/* The Goals section of the Project page (server/goals.tsx). */
+.goals { padding: 12px 28px 28px; max-width: 980px; display: grid; gap: 12px; }
+.goals-head { display: flex; align-items: center; gap: 14px; }
+.goals-head h2 { font-size: 17px; font-weight: 600; }
+.goals-head .button { margin-left: auto; min-height: 34px; padding: 5px 12px; }
+.goals-empty { color: var(--muted); font-size: 15px; max-width: 62ch; }
+.goals-empty b { color: var(--ink); font-weight: 600; }
+
+.goal-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.goal-list .goal-list { margin: 2px 0 0 26px; padding-left: 12px; border-left: 1px solid var(--line); }
+.goal-row {
+  display: flex; align-items: baseline; gap: 12px; width: 100%; text-align: left;
+  padding: 9px 10px; border-radius: 6px; font-size: 15px;
+}
+.goal-row:hover, .goal-row[aria-expanded="true"] { background: var(--hover); }
+.goal-title { flex: 1; min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.goal.is-dropped > .goal-row .goal-title { color: var(--faint); text-decoration: line-through; }
+/* The pill's colours are in ui.css, shared with where finished work stands. */
+.goal-status { width: 7.5em; padding: 2px 8px; }
+.goal-progress, .goal-from { flex: none; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.goal-proposed { flex: none; font-size: 13px; font-weight: 600; color: var(--ink); padding: 2px 8px; border-radius: 999px; background: var(--selected); }
+.goal-proposal {
+  display: grid; gap: 8px; padding: 12px 14px; border-radius: 8px;
+  border: 1px dashed var(--line-strong); background: var(--canvas);
+}
+.goal-proposal p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 14px; }
+.goal-proposal small { color: var(--muted); font-size: 13px; }
+
+.goal-detail {
+  display: grid; gap: 12px; margin: 4px 0 10px 10px; padding: 14px 18px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+}
+.goal-why { color: var(--ink); font-size: 15px; line-height: 1.55; max-width: 70ch; }
+.goal-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.goal-actions .button { min-height: 34px; padding: 5px 12px; }
+.goal-section { display: grid; gap: 8px; }
+.goal-section h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.goal-history, .goal-attempts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 14px; }
+.goal-history li { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); gap: 12px; }
+.goal-history li.is-ignored { opacity: 0.6; }
+.goal-history p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.goal-history small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.goal-history time, .goal-attempts time { color: var(--faint); font-variant-numeric: tabular-nums; }
+.goal-who { color: var(--faint); }
+.goal-attempts li { display: flex; align-items: baseline; gap: 10px; }
+.goal-attempts li span:not(.outcome) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.goal-id { font-size: 12px; color: var(--faint); font-family: var(--mono); }
+@media (max-width: 640px) {
+  .goals { padding: 0 16px 24px; }
+  .goal-row { flex-wrap: wrap; }
+  .goal-history li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}

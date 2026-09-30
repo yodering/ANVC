@@ -1,0 +1,44 @@
+name: Desktop app
+
+# Builds the desktop app for macOS, Windows and Linux when a release is
+# tagged, and attaches the installers to a draft GitHub release: .dmg for
+# macOS, .msi and .exe for Windows, .deb and .AppImage for Linux. The plugin
+# and the CLI don't need it; it's another way to open the same work log.
+# Nothing is signed yet, so macOS and Windows warn the first time it opens.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: bun install --frozen-lockfile
+      # tauri build runs scripts/desktop-sidecar.ts first, which compiles the
+      # work log's server for the machine it runs on.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Named, so the action doesn't guess npm from the lockfile.
+          tauriScript: bun tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: ANVC ${{ github.ref_name }}
+          releaseBody: The desktop app for this release. The Claude Code plugin and the CLI don't need it.
+          releaseDraft: true

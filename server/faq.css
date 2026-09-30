@@ -1,0 +1,6 @@
+/* The Questions page (server/faq.tsx). */
+.faq { padding: 14px 28px 60px; max-width: 760px; display: grid; gap: 22px; }
+.faq section { display: grid; gap: 6px; }
+.faq h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--ink); text-wrap: balance; }
+.faq p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.55; max-width: 68ch; }
+.faq code { color: var(--ink); font-size: 0.92em; }

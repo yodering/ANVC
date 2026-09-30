@@ -1,0 +1,13 @@
+/* Markdown as server/markdown.tsx renders it: the writing rules on the Project page. */
+.md h4, .md h5, .md h6 { margin: 6px 0 0; font-size: 14.5px; font-weight: 600; color: var(--ink); }
+.md h5, .md h6 { font-size: 14px; color: var(--muted); }
+.md p { max-width: 80ch; }
+.md ul, .md ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; max-width: 80ch; }
+.md li > ul, .md li > ol { margin-top: 4px; }
+.md strong { font-weight: 600; }
+.md code {
+  font-family: var(--mono); font-size: 0.9em; padding: 1px 5px; border-radius: 4px;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.md pre { padding: 10px 12px; overflow: auto; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); }
+.md pre code { padding: 0; border: 0; background: none; font-size: 13px; line-height: 1.5; white-space: pre; }

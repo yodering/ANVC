@@ -1,0 +1,24 @@
+{
+  "name": "anvc",
+  "version": "0.4.0",
+  "description": "Keeps what your coding agents tried, kept and abandoned, and shows them past dead ends before they repeat one.",
+  "author": {
+    "name": "ANVC contributors",
+    "url": "https://github.com/yodering/anvc"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/yodering/anvc",
+  "repository": "https://github.com/yodering/anvc",
+  "mcpServers": {
+    "anvc": {
+      "command": "bun",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/dist/mcp.js"
+      ],
+      "env": {
+        "ANVC_AGENT": "claude-code",
+        "ANVC_PLUGIN": "1"
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+name: Tests
+
+# The whole suite on Linux, macOS and Windows. Most people using ANVC are on
+# macOS or Windows, and this is what catches an assumption that only holds
+# on Linux. It runs on pull requests, on release tags and by hand, not on
+# every push, because macOS and Windows minutes cost more.
+on:
+  pull_request:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      # Many tests make commits in temporary repositories.
+      - run: git config --global user.email ci@example.com
+      - run: git config --global user.name ci
+      - run: bun install --frozen-lockfile
+      - run: bun run check
