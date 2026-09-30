@@ -392,10 +392,16 @@ if (everywhere) {
   // Registered here, as setup would only print the command.
   if (agents.includes("claude-code") && Bun.which("claude")) {
     const server = JSON.stringify({ command: "bun", args: [`${here}/protocol/mcp.ts`], env: { ANVC_REPO: repo, ANVC_AGENT: "claude-code" } });
-    const added = Bun.spawnSync(["claude", "mcp", "add-json", "anvc", server], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-    const text = `${added.stdout}${added.stderr}`;
-    if (added.success) log.success("Claude Code: ANVC's tools added for this project");
-    else if (/already exists/i.test(text)) log.info("Claude Code: ANVC's tools were already added");
+    const add = () => Bun.spawnSync(["claude", "mcp", "add-json", "anvc", server], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+    let added = add();
+    // One from an earlier setup can name a clone that has moved or gone, so
+    // it's replaced rather than kept.
+    const again = !added.success && /already exists/i.test(`${added.stdout}${added.stderr}`);
+    if (again) {
+      Bun.spawnSync(["claude", "mcp", "remove", "anvc", "--scope", "local"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+      added = add();
+    }
+    if (added.success) log.success(`Claude Code: ANVC's tools ${again ? "updated" : "added"} for this project`);
     else log.warn(`Claude Code: ANVC's tools weren't added. From ${tilde(repo)}, run: claude mcp add-json anvc '${server}'`);
   }
   addCodexTools();
@@ -404,10 +410,13 @@ if (everywhere) {
 await installApp();
 
 const where = everywhere ? "" : ` --repo ${shellWord(repo)}`;
+// The /anvc: commands come with the plugin, which only an install for every
+// project adds. In one project, the agent opens the work log with anvc_open.
+const open = everywhere && agents.includes("claude-code") ? "/anvc:open in Claude Code" : "ask your agent to open it";
 outro([
   "Done. Start a new session in your agent so it loads ANVC.",
   "",
-  `${dim("Open the work log")}   /anvc:open in Claude Code, or bun run ui${where}`,
+  `${dim("Open the work log")}   ${open}, or bun run anvc open${where}`,
   `${dim("Turn it off")}         bun run anvc off${everywhere ? " --repo <project>" : where}, in one project`,
   `${dim("Change a setting")}    bun run setup again, or Settings in the work log`,
 ].join("\n"));

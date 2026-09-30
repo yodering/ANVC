@@ -1,6 +1,6 @@
 [package]
 name = "anvc-desktop"
-version = "0.4.0"
+version = "0.4.1"
 description = "The anvc work log as a desktop app"
 authors = ["anvc"]
 repository = "https://github.com/yodering/ANVC"
