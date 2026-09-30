@@ -35,6 +35,40 @@ test("a receipt counts what was shown, searched, opened and recorded, and names 
   expect(text.split("\n")[1]).toContain('"Cache the ref index"');
 });
 
+test("records that read the same are named once, with how many and how each ended", () => {
+  const same = "Delete the old repository and keep its fork";
+  const rows = [row({ records: ["A", "B", "C"], titles: [same, same, "Pool redis"] })];
+  const text = receipt(rows, () => new Map([["A", "abandoned"], ["B", "kept"]]))!;
+  expect(text).toContain("showed 3 past attempts");
+  // The second slot goes to the next record, not to the same title again.
+  expect(text.split("\n")[1]).toBe(`      "${same}" (2 records: abandoned, kept), "Pool redis"`);
+  expect(receipt(rows, () => new Map([["A", "abandoned"], ["B", "abandoned"]]))).toContain("(2 records, both abandoned)");
+  // Without the lookup, or when it fails, the count still says there are two.
+  expect(receipt(rows)).toContain(`"${same}" (2 records), "Pool redis"`);
+  expect(receipt(rows, () => { throw new Error("no index"); })).toContain(`"${same}" (2 records)`);
+});
+
+test("the stop hook's receipt says how each of two same-titled records ended", async () => {
+  const repo = gitRepo();
+  const state = tmp("anvc-receipt-same-");
+  const transcript = join(state, "t.jsonl");
+  await writeFile(transcript, `${JSON.stringify({ type: "user", message: { role: "user", content: "hi" } })}\n`);
+  const made = (status: string): CheckpointRecord => ({
+    anvc: 0, id: ulid(), anchor: { kind: "blob", oid: "a".repeat(40) },
+    session: { agent: "claude-code", run_id: "s" },
+    intent: { goal: "Delete the old repository" },
+    outcome: { status, recheck: null, errors: [] },
+    ts: new Date().toISOString(),
+  } as CheckpointRecord);
+  const [failed, retried] = [made("abandoned"), made("kept")];
+  appendRecord(repo, failed);
+  appendRecord(repo, retried);
+  logActivity({ kind: "injected", repo: repoRoot(repo)!, session: "s-receipt-same", records: [failed.id, retried.id], titles: ["Delete the old repository", "Delete the old repository"] });
+
+  const out = runHook("stop", "Stop", { hook_event_name: "Stop", session_id: "s-receipt-same", cwd: repo, transcript_path: transcript }, { ANVC_STATE_DIR: state });
+  expect(out?.systemMessage).toContain('"Delete the old repository" (2 records: abandoned, kept)');
+});
+
 test("repoRoot is the same from a worktree as from the main checkout", async () => {
   const repo = gitRepo({ commit: true });
   const tree = join(tmp("anvc-root-wt-"), "wt");

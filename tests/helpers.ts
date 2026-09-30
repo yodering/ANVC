@@ -87,9 +87,12 @@ export const rawRows = (root: string): Array<Record<string, any>> =>
 export function writeCapture(repo: string, rows: object[], root?: string): void {
   const file = captureFile(repo, new Date().toISOString().slice(0, 10), root);
   mkdirSync(dirname(file), { recursive: true });
+  // The capture hook names the repository as git does, with symlinks resolved,
+  // as they are in macOS's temp folder.
+  const top = realpathSync(repo);
   appendFileSync(file, rows.map((r) => JSON.stringify({
     anvc_capture: 0, event: "PostToolUse", ts: new Date().toISOString(), session_id: "s", agent: "claude-code",
-    cwd: repo, repo, tool: null, path: null, bytes: null, command: null, prompt: null, ok: null, ...r,
+    cwd: top, repo: top, tool: null, path: null, bytes: null, command: null, prompt: null, ok: null, ...r,
   })).join("\n") + "\n");
 }
 
@@ -107,11 +110,17 @@ export function runHook(script: string, event: string | string[], payload: objec
 export const context = (event: string, payload: object, env: Record<string, string> = {}): string | undefined =>
   runHook("inject", event, payload, env)?.hookSpecificOutput?.additionalContext;
 
+/**
+ * The MCP server as Claude Code starts it: setup registers it with
+ * ANVC_AGENT set, so a record it writes names the agent.
+ */
+const AS_CLAUDE = { ANVC_AGENT: "claude-code" };
+
 /** Drives the MCP server over stdio the way a client does, then reads the replies. */
 export async function rpc(repo: string, requests: unknown[], env: Record<string, string> = {}): Promise<Map<number, unknown>> {
   const proc = Bun.spawn(["bun", join(ROOT, "protocol/mcp.ts")], {
     stdin: Buffer.from(requests.map((r) => JSON.stringify(r)).join("\n") + "\n"),
-    env: { ...process.env, ANVC_REPO: repo, ...env },
+    env: { ...process.env, ...AS_CLAUDE, ANVC_REPO: repo, ...env },
     stdout: "pipe", stderr: "pipe",
   });
   await proc.exited;
@@ -128,7 +137,7 @@ export async function rpc(repo: string, requests: unknown[], env: Record<string,
 export function tool(repo: string, name: string, args: object = {}, env: Record<string, string> = {}): string {
   const p = Bun.spawnSync(["bun", join(ROOT, "protocol/mcp.ts")], {
     stdin: Buffer.from(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })}\n`),
-    env: { ...process.env, ANVC_REPO: repo, ...env }, stdout: "pipe", stderr: "pipe",
+    env: { ...process.env, ...AS_CLAUDE, ANVC_REPO: repo, ...env }, stdout: "pipe", stderr: "pipe",
   });
   return JSON.parse(p.stdout.toString().trim().split("\n").at(-1)!).result.content[0].text as string;
 }

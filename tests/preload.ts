@@ -27,6 +27,10 @@ process.env.CLAUDE_CONFIG_DIR ??= join(scratch, "claude");
 process.env.ANVC_UI_TOKEN ??= crypto.randomUUID();
 // `anvc open` and anvc_open never start a real browser from a test.
 process.env.ANVC_NO_BROWSER = "1";
+// Run from inside an agent, the suite inherits its session: the MCP server
+// then names the agent claude-code, where on CI it says unknown, and tests
+// passed here that failed there. A test that needs an agent names it.
+for (const name of ["CLAUDE_CODE_SESSION_ID", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PROJECT_DIR", "ANVC_AGENT", "ANVC_SESSION"]) delete process.env[name];
 
 // Bun starts a subprocess with the environment the test runner began with,
 // not the one set above, unless one is passed. Tests that ran hooks or setup

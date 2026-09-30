@@ -96,14 +96,15 @@ var repoKey = (repo) => {
   const path = samePath(repo);
   return `${readable(path)}-${createHash("sha256").update(path).digest("hex").slice(0, 8)}`;
 };
+var real = process.platform === "win32" ? realpathSync.native : realpathSync;
 function samePath(path) {
   if (!path)
     return path;
-  let real = path;
+  let resolved = path;
   try {
-    real = realpathSync(path);
+    resolved = real(path);
   } catch {}
-  return process.platform === "win32" ? normalize(real).replace(/^[a-z](?=:)/, (d) => d.toUpperCase()) : real;
+  return process.platform === "win32" ? normalize(resolved).replace(/^[a-z](?=:)/, (d) => d.toUpperCase()) : resolved;
 }
 function isRepo(repo) {
   const real = samePath(repo);
@@ -137,7 +138,7 @@ function realInside(repo, path) {
 function resolveExisting(path) {
   const parent = dirname(path);
   try {
-    return realpathSync(path);
+    return real(path);
   } catch {}
   return parent === path ? path : join(resolveExisting(parent), basename(path));
 }
@@ -314,7 +315,7 @@ function readActivity(filter = {}) {
   return out;
 }
 var plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-function receipt(rows) {
+function receipt(rows, statusOf) {
   const shown = new Set, opened = new Set;
   const titles = new Map;
   let searches = 0;
@@ -354,9 +355,32 @@ function receipt(rows) {
     parts.push(`the agent wants to retire ${plural(proposed, "record")}: anvc retire list`);
   if (!parts.length)
     return null;
-  const named = [...opened, ...shown].filter((id, i, all) => all.indexOf(id) === i && titles.has(id)).slice(0, 2);
+  const byName = new Map;
+  for (const id of [...opened, ...shown]) {
+    const name = titles.get(id)?.slice(0, 60);
+    if (name && !byName.get(name)?.includes(id))
+      byName.set(name, [...byName.get(name) ?? [], id]);
+  }
+  const named = [...byName].slice(0, 2);
+  const alike = named.flatMap(([, ids]) => ids.length > 1 ? ids : []);
+  let ended = new Map;
+  if (alike.length && statusOf) {
+    try {
+      ended = statusOf(alike);
+    } catch {}
+  }
+  const say = ([name, ids]) => {
+    if (ids.length === 1)
+      return `"${name}"`;
+    const how = ids.map((id) => ended.get(id)).filter((s) => !!s);
+    if (how.length < ids.length)
+      return `"${name}" (${ids.length} records)`;
+    if (new Set(how).size === 1)
+      return `"${name}" (${ids.length} records, ${ids.length === 2 ? "both" : "all"} ${how[0]})`;
+    return `"${name}" (${ids.length} records: ${how.join(", ")})`;
+  };
   const detail = named.length ? `
-      ${named.map((id) => `"${titles.get(id).slice(0, 60)}"`).join(", ")}` : "";
+      ${named.map(say).join(", ")}` : "";
   return `ANVC  ${parts.join(" \xB7 ")}${detail}`;
 }
 function earlierInjections(repo) {
@@ -405,7 +429,7 @@ import { join as join4 } from "path";
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.1",
+  version: "0.4.2",
   private: true,
   type: "module",
   scripts: {

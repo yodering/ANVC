@@ -41,7 +41,7 @@ import { scrub } from "../../protocol/scrub";
 import { checkDaily, hooksBehind, managedBy, readUpdate, updateLine } from "../../protocol/version";
 import { continueOutput, continuing, hookInput, hookRepo, noticeOutput, patchPaths } from "../../protocol/agents";
 import { openItems } from "../../protocol/status";
-import { printable } from "../../protocol/query";
+import { hitsById, printable, withIndex } from "../../protocol/query";
 
 const EDITS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "StrReplace"]);
 /**
@@ -193,7 +193,8 @@ try {
     let since = "";
     try { since = existsSync(seenFile) ? readFileSync(seenFile, "utf8").trim() : ""; } catch { /* first receipt */ }
     const now = new Date().toISOString();
-    const done = receipt(readActivity({ repo: root, session, since: since || undefined }));
+    const done = receipt(readActivity({ repo: root, session, since: since || undefined }),
+      (ids) => withIndex(repo, (db) => new Map(hitsById(db, ids).map((h) => [h.id, h.status]))));
     // About anvc itself, once a day per repository: an update is ready, or
     // this repository's hooks are older than the anvc running them.
     checkDaily();

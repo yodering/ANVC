@@ -22,6 +22,26 @@ with push and fetch, with no server and no account.
   <img src="docs/assets/features-light.svg" alt="You decide what's saved, shared and used by your agent. ANVC keeps your project's status and goals, dead ends with their reasons, where numbers and sources came from, and a map of your project." width="100%">
 </picture>
 
+## Features
+
+- **Attempt history.** Each attempt's goal, outcome (kept or abandoned), reason
+  and a command that checks it again.
+- **Git-native storage.** Records are git refs next to your commits, versioned
+  and shared with push and fetch. There's no server and no account.
+- **Dead-end recall.** Hooks in Claude Code, Codex and Cursor show an agent the
+  attempts that already failed before it tries them again.
+- **MCP tools.** Agents search what was tried, record results and update
+  goals and status through ANVC's MCP server.
+- **Provenance.** Each number is traced to the run, command and files that
+  made it, and `anvc check` does that for every number in a document.
+- **Source capture.** The pages, searches and papers an agent read are kept
+  with the text it got back.
+- **Per-project policy.** Presets and per-field switches decide what's saved,
+  what's shared and what the agent is shown. Passwords, API keys and tokens it
+  recognises are removed first.
+- **Work log.** Status, goals, a project map, results and sources, in the
+  browser or a desktop app for macOS, Windows and Linux.
+
 ## Install
 
 You need [Bun](https://bun.com) and git.

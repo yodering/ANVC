@@ -69,10 +69,12 @@ test("the Update button restarts a clone's server on the same port", async () =>
   const up = join(root, "up.git"), home = join(root, "anvc");
   git(root, "clone", "-q", "--bare", ROOT, up);
   git(root, "clone", "-q", up, home);
+  // CI checks out a tag, so the clone can start with no branch to push.
+  git(home, "checkout", "-q", "-B", "main");
   for (const file of ["server/inspect.ts", "protocol/open.ts"]) copyFileSync(join(ROOT, file), join(home, file));
   git(home, "commit", "-q", "--allow-empty", "-am", "Launcher under test");
   git(home, "commit", "-q", "--allow-empty", "-m", "Newer");
-  git(home, "push", "-q", "origin", "HEAD");
+  git(home, "push", "-q", "-u", "origin", "HEAD:refs/heads/main");
   git(home, "reset", "-q", "--hard", "HEAD~1");
   symlinkSync(join(ROOT, "node_modules"), join(home, "node_modules"), "junction");
   // No installs to set up again, and no real Claude Code for the update to

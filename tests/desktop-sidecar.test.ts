@@ -5,14 +5,15 @@
  * Skipped on Windows: the stand-ins for rustc and bun are sh scripts.
  */
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { tmp } from "./helpers";
 
 /** Runs a copy of the script with a rustc that names `host`, and returns the file bun build was asked for. */
 function sidecar(host: string): { root: string; outfile: string } {
   // A copy of the script, so what it builds lands in a temp folder.
-  const root = tmp("anvc-sidecar-");
+  // The script resolves its own folder, and macOS's temp folder is behind a symlink.
+  const root = realpathSync(tmp("anvc-sidecar-"));
   mkdirSync(join(root, "scripts"));
   writeFileSync(join(root, "scripts/desktop-sidecar.ts"), readFileSync(resolve(import.meta.dir, "../scripts/desktop-sidecar.ts")));
   // rustc 1.77 has no `--print host-tuple`; bun build only says what it was asked.

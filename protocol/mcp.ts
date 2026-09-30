@@ -31,7 +31,7 @@ import { agentRetire, headAnchor } from "./retire";
 import { GOAL_TOOLS, goalTool } from "./goals";
 import { RULE_TOOLS, ruleTool } from "./rules";
 import { appendRecord, defaultTier, readRecords, RESULT_STATUSES, RETIRE_REASONS, ulid, MAX_DETAIL_BYTES, MAX_DETAIL_ITEMS, MAX_EVIDENCE, type CheckpointRecord, type FailureScope, type ResultStatus, type Tier } from "./record";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { TOOL_TOOLS, toolTool } from "./tools";
 import { STATUS_TOOLS, statusTool } from "./status";
 import { openWorkLog } from "./open";
@@ -60,7 +60,7 @@ function repoPath(path: string): string {
   if (isAbsolute(path)) {
     // Through symlinks, since git reports /private/var where an agent on macOS
     // may pass /var.
-    return below(realpathSync(repo), existsSync(path) ? realpathSync(path) : path) ?? path;
+    return below(samePath(repo), existsSync(path) ? samePath(path) : path) ?? path;
   }
   if (existsSync(resolve(repo, path))) return path;
   const fromHere = below(repo, resolve(process.cwd(), path));
@@ -465,9 +465,8 @@ const withIndex = forRepo(repo);
  */
 const revParse = (flag: string) => Bun.spawnSync(["git", "-C", repo, "rev-parse", flag], { stdout: "pipe", stderr: "ignore", windowsHide: true })
   .stdout.toString().trim();
-const sameDir = (a: string, b: string) => {
-  try { return realpathSync(a) === realpathSync(b); } catch { return false; }
-};
+// samePath, so a short Windows name such as RUNNER~1 matches git's long one.
+const sameDir = (a: string, b: string) => existsSync(a) && existsSync(b) && samePath(a) === samePath(b);
 const knownRepo = !repo.includes("${") && (sameDir(revParse("--show-toplevel") || "\0", repo) || revParse("--is-bare-repository") === "true");
 
 /**

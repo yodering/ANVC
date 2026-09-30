@@ -111,8 +111,11 @@ export const plural = (n: number, one: string, many = `${one}s`): string => `${n
  * Silent on a quiet turn: a receipt that appears every time says nothing, and
  * people turn off tools that talk without cause. It speaks when a record was
  * shown, searched for, opened or written.
+ *
+ * `statusOf` says how records ended, and is asked only about records whose
+ * titles would read the same.
  */
-export function receipt(rows: Activity[]): string | null {
+export function receipt(rows: Activity[], statusOf?: (ids: string[]) => Map<string, string>): string | null {
   const shown = new Set<string>(), opened = new Set<string>();
   const titles = new Map<string, string>();
   let searches = 0;
@@ -137,9 +140,26 @@ export function receipt(rows: Activity[]): string | null {
   if (!parts.length) return null;
 
   // Name what was opened first: an agent asking for more is the strongest sign
-  // it mattered. Then whatever was shown.
-  const named = [...opened, ...shown].filter((id, i, all) => all.indexOf(id) === i && titles.has(id)).slice(0, 2);
-  const detail = named.length ? `\n      ${named.map((id) => `"${titles.get(id)!.slice(0, 60)}"`).join(", ")}` : "";
+  // it mattered. Then whatever was shown. Records that read the same are named
+  // once, with how many there are and how each ended: two attempts at one goal
+  // printed twice looked like one line said twice.
+  const byName = new Map<string, string[]>();
+  for (const id of [...opened, ...shown]) {
+    const name = titles.get(id)?.slice(0, 60);
+    if (name && !byName.get(name)?.includes(id)) byName.set(name, [...(byName.get(name) ?? []), id]);
+  }
+  const named = [...byName].slice(0, 2);
+  const alike = named.flatMap(([, ids]) => (ids.length > 1 ? ids : []));
+  let ended = new Map<string, string>();
+  if (alike.length && statusOf) { try { ended = statusOf(alike); } catch { /* the count still stands */ } }
+  const say = ([name, ids]: [string, string[]]) => {
+    if (ids.length === 1) return `"${name}"`;
+    const how = ids.map((id) => ended.get(id)).filter((s): s is string => !!s);
+    if (how.length < ids.length) return `"${name}" (${ids.length} records)`;
+    if (new Set(how).size === 1) return `"${name}" (${ids.length} records, ${ids.length === 2 ? "both" : "all"} ${how[0]})`;
+    return `"${name}" (${ids.length} records: ${how.join(", ")})`;
+  };
+  const detail = named.length ? `\n      ${named.map(say).join(", ")}` : "";
   return `ANVC  ${parts.join(" · ")}${detail}`;
 }
 

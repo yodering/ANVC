@@ -39,12 +39,19 @@ export const repoKey = (repo: string): string => {
  * kept as it is. On Windows one folder is C:\x, c:\x and C:/x, the last from
  * git, so there the slashes and the drive letter are made one way too.
  */
+/**
+ * A path with its links resolved. On Windows the native call also spells out
+ * a short name such as RUNNER~1, which the JavaScript one leaves as it is,
+ * while git reports the long name.
+ */
+const real = process.platform === "win32" ? realpathSync.native : realpathSync;
+
 export function samePath(path: string): string {
   // An empty path names no folder; realpathSync("") would answer the current one.
   if (!path) return path;
-  let real = path;
-  try { real = realpathSync(path); } catch { /* kept as it is */ }
-  return process.platform === "win32" ? normalize(real).replace(/^[a-z](?=:)/, (d) => d.toUpperCase()) : real;
+  let resolved = path;
+  try { resolved = real(path); } catch { /* kept as it is */ }
+  return process.platform === "win32" ? normalize(resolved).replace(/^[a-z](?=:)/, (d) => d.toUpperCase()) : resolved;
 }
 
 /**
@@ -97,7 +104,7 @@ export function realInside(repo: string, path: string): string | null {
 /** Resolves the deepest folder of a path that exists, for a file since deleted or never written. */
 function resolveExisting(path: string): string {
   const parent = dirname(path);
-  try { return realpathSync(path); } catch { /* resolve what's above it */ }
+  try { return real(path); } catch { /* resolve what's above it */ }
   return parent === path ? path : join(resolveExisting(parent), basename(path));
 }
 
