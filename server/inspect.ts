@@ -226,7 +226,7 @@ async function answer(request: Request, ownPort: number | undefined): Promise<Re
     catch (error) { return Response.json({ error: error instanceof Error ? error.message : "unreadable" }, { status }); }
   };
 
-  // ponytail: "all" is capped at 1000 attempts and polled like the rest; page it if a repository outgrows that.
+  // "all" is capped at 1000 attempts and polled like the rest; page it if a repository outgrows that.
   if (url.pathname === "/api/repo") return Response.json(repoView(repo, url.searchParams.has("all") ? 1000 : 40));
   // Laid out server-side; the browser receives coordinates, not a layout engine.
   if (url.pathname === "/api/tiers") return attempt(() => tierFacts(repo));

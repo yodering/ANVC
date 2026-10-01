@@ -23,6 +23,7 @@ export const MOMENTS = {
   goals: { label: "Goals", what: "The project's goals and which are done, when a session starts or its context is compacted." },
   prompts: { label: "Each prompt", what: "Past attempts that match what you just asked." },
   failures: { label: "Failed commands", what: "Past attempts that hit the same error, when a command fails." },
+  results: { label: "Record results", what: "Asks your agent to record a number, when a file it or a command wrote holds numbers." },
   subagents: { label: "Subagents", what: "The open dead ends, when your agent hands work to a subagent." },
   remind: { label: "Save reminder", what: "Asks your agent once to record its work if it edited files and saved nothing." },
   autosave: { label: "Save from the log", what: "Saves what your agent didn't record, privately, marked as having no reason." },
@@ -48,7 +49,7 @@ export const LEVELS: Record<Level, { label: string; what: string; moments: Recor
   start: {
     label: "At the start",
     what: "Briefs your agent when a session starts, then stays quiet.",
-    moments: { ...every(true), prompts: false, failures: false, subagents: false },
+    moments: { ...every(true), prompts: false, failures: false, subagents: false, results: false },
   },
   ask: {
     label: "When asked",

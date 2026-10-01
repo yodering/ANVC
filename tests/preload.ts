@@ -11,6 +11,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// The 30 s timeout Windows needs is --timeout in package.json's test script:
+// setDefaultTimeout here reached only the first test file.
+
 const scratch = mkdtempSync(join(tmpdir(), "anvc-test-home-"));
 // In a preload, this runs once, after the last test file.
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));

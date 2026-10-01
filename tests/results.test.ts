@@ -6,7 +6,6 @@ import { expect, test } from "bun:test";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkResult, describe, fingerprint, listResults, readValue, recordResult, recordStatus, sameNumber, whence } from "../protocol/results";
-import { captureFile } from "../protocol/rawlog";
 import { appendRecord } from "../protocol/record";
 import { git, gitRepo, rec, runHook, setEnv, tmp, tool, writeCapture } from "./helpers";
 
@@ -166,6 +165,26 @@ test("an agent records a result and finds it again by its number, through the MC
   expect(found).toContain("used in: paper.tex Table 2");
 });
 
+test("several results go in one call, answered in a line plus one for each that needs a look", () => {
+  const p = project();
+  const said = tool(p.repo, "anvc_result", {
+    depends: ["d/model.py"], used_in: ["paper.tex Table 2"],
+    results: [
+      { name: "v6 accuracy", value: "0.881", source: { path: "results/table.csv", key: "v6/acc" } },
+      { name: "v6 F1", value: "0.83", source: { path: "results/table.csv", key: "v6/f1" } },
+      { name: "v4 F1", value: "0.90", source: { path: "results/table.csv", key: "v4/f1" } },
+      { name: "no value" },
+    ],
+  }, { ANVC_SESSION: "s-batch" });
+  expect(said.split("\n")).toEqual([
+    "Recorded 3 of 4 results; 2 match their files.",
+    expect.stringMatching(/^- v4 F1 \(\w{26}\): results\/table\.csv → v4\/f1 holds 0\.80, not 0\.90\.$/),
+    "- no value: not recorded. A result needs a name and a value.",
+  ]);
+  // What was given beside the list went on each.
+  expect(listResults(p.repo).map((r) => [r.name, r.used_in, r.depends.map((d) => d.path)])).toContainEqual(["v6 F1", ["paper.tex Table 2"], ["d/model.py"]]);
+});
+
 test("the briefing names a locked result whose inputs changed, and a prompt with its number brings it up", async () => {
   const p = project();
   const state = tmp("anvc-results-state-");
@@ -201,6 +220,9 @@ test("a path that links out of the repository is refused, and never read or fing
   }));
   const view = listResults(p.repo).find((v) => v.name === "t")!;
   expect(checkResult(p.repo, view)).toMatchObject({ source: { state: "missing", now: null }, depends: [{ state: "missing" }] });
+  // Confirming it fingerprints nothing out there either.
+  recordStatus(p.repo, view.id, "current", "", agent);
+  expect(JSON.stringify(listResults(p.repo))).not.toContain(fingerprint(join(outside, "secret.json"))!.hash);
 
   // Inside a folder, a link out of it isn't followed.
   const before = fingerprint(join(p.repo, "results"));
@@ -210,4 +232,89 @@ test("a path that links out of the repository is refused, and never read or fing
   writeFileSync(join(outside, "paper.md"), "Accuracy was 88.1%.\n");
   symlinkSync(join(outside, "paper.md"), join(p.repo, "paper.md"));
   expect(tool(p.repo, "anvc_results", { document: "paper.md" })).toBe("paper.md is outside this repository.");
+});
+
+test("JSON as Python writes it, with NaN, reads, and so do list items by number", () => {
+  const dir = tmp("anvc-nan-");
+  const file = join(dir, "slices.json");
+  // json.dump writes NaN for a float that is one; strict JSON refuses the whole file.
+  writeFileSync(file, '[{"domain": "math", "auc": 0.739, "lead": NaN}, {"domain": "all", "auc": 0.909, "failed_trace_auc": 0.787, "low": -Infinity}]');
+  expect(readValue(file, "1.failed_trace_auc")).toBe("0.787");
+  expect(readValue(file, "0.auc")).toBe("0.739");
+  // A string that says NaN is left as it is.
+  writeFileSync(file, '{"note": "NaN means missing", "x": NaN, "y": 0.5}');
+  expect(readValue(file, "note")).toBe("NaN means missing");
+  expect(readValue(file, "y")).toBe("0.5");
+});
+
+test("a CSV row whose first cell repeats is named by its columns, never read from the first match", () => {
+  const dir = tmp("anvc-csv-");
+  const file = join(dir, "summary.csv");
+  writeFileSync(file, [
+    "benchmark,model,horizon,far",
+    "aftraj,current_step,1,0.0435",
+    "aftraj,deepset,1,0.0391",
+    "aftraj,deepset,3,0.0406",
+    "apb,deepset,3,0.1120",
+  ].join("\n"));
+  // Several rows start with aftraj: the first one is the wrong number, so none is given.
+  expect(readValue(file, "aftraj/far")).toBeNull();
+  expect(readValue(file, "benchmark=aftraj,model=deepset,horizon=3/far")).toBe("0.0406");
+  expect(readValue(file, "apb/far")).toBe("0.1120");
+  expect(readValue(file, "benchmark=aftraj,model=nope/far")).toBeNull();
+  // A sweep names its rows by their settings, with "=" in the first cell.
+  writeFileSync(join(dir, "sweep.csv"), "run,acc\nlr=0.1,0.81\nlr=0.01,0.84\n");
+  expect(readValue(join(dir, "sweep.csv"), "lr=0.1/acc")).toBe("0.81");
+});
+
+test("whence names a repeated CSV row by its columns, and the name reads back that row", () => {
+  const p = project();
+  writeFileSync(join(p.repo, "results", "alarm.csv"), "benchmark,model,horizon,recall\naftraj,current,3,0.4364\naftraj,deepset,3,0.5091\n");
+  const w = whence(p.repo, "0.5091");
+  const hit = w.elsewhere.find((e) => e.path === "results/alarm.csv")!;
+  expect(hit.key).toBe("benchmark=aftraj,model=deepset/recall");
+  expect(readValue(join(p.repo, "results", "alarm.csv"), hit.key)).toBe("0.5091");
+});
+
+test("a field on every line of a predictions file isn't offered as where a result came from", () => {
+  const p = project();
+  const rows = Array.from({ length: 150 }, (_, i) => JSON.stringify({ id: i, probability: i === 77 ? 0.913 : 0.5 }));
+  writeFileSync(join(p.repo, "results", "preds.jsonl"), `${rows.join("\n")}\n`);
+  writeFileSync(join(p.repo, "results", "epochs.jsonl"), `${JSON.stringify({ epoch: 1, auc: 0.913 })}\n`);
+  const where = whence(p.repo, "0.913").elsewhere.map((e) => e.path);
+  expect(where).toContain("results/epochs.jsonl");
+  expect(where).not.toContain("results/preds.jsonl");
+});
+
+test("a result is stale when its value moved, not when its file gained a key, and confirming it clears the flag", () => {
+  const p = project();
+  writeFileSync(join(p.repo, "results", "head.json"), JSON.stringify({ auc: 0.909 }));
+  writeFileSync(join(p.repo, "d", "model.py"), "v1\n");
+  const { id } = recordResult(p.repo, { name: "AUC", value: "0.909", source: { path: "results/head.json", key: "auc" }, depends: ["d/model.py"] }, agent);
+  const check = () => { const all = listResults(p.repo); return checkResult(p.repo, all.find((r) => r.id === id)!, all); };
+  // Another key added beside it: the value it was read from is the same.
+  writeFileSync(join(p.repo, "results", "head.json"), JSON.stringify({ auc: 0.909, ap: 0.672 }));
+  expect(check().stale).toBe(false);
+  // Something it depends on changed: stale, until someone checks and confirms it.
+  writeFileSync(join(p.repo, "d", "model.py"), "v2\n");
+  expect(check().stale).toBe(true);
+  recordStatus(p.repo, id, "current", "Checked: the change was a comment", agent);
+  expect(check().stale).toBe(false);
+  // The value itself moved: stale, and the line says what it holds now.
+  writeFileSync(join(p.repo, "results", "head.json"), JSON.stringify({ auc: 0.871, ap: 0.672 }));
+  expect(check().stale).toBe(true);
+  const all = listResults(p.repo);
+  expect(describe(all.find((r) => r.id === id)!, check(), all)).toContain("now holds 0.871");
+});
+
+test("a superseded result isn't flagged for what changed after it", () => {
+  const p = project();
+  writeFileSync(join(p.repo, "d", "model.py"), "v1\n");
+  const old = recordResult(p.repo, { name: "AUC", value: "0.90", depends: ["d/model.py"] }, agent);
+  recordResult(p.repo, { name: "AUC", value: "0.91", depends: ["d/model.py"], replaces: old.id }, agent);
+  writeFileSync(join(p.repo, "d", "model.py"), "v2\n");
+  const all = listResults(p.repo);
+  const was = all.find((r) => r.id === old.id)!;
+  expect(was.status).toBe("superseded");
+  expect(checkResult(p.repo, was, all).stale).toBe(false);
 });

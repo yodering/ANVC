@@ -109,3 +109,16 @@ test("an agent checks a document through the MCP server, and only inside the rep
   expect(text).toContain("- 0.123 (line 3): No command here printed it");
   expect(call({ document: "../outside.md" })).toContain("outside this repository");
 });
+
+test("a claims table's row numbers and references to places aren't taken for values", () => {
+  const doc = [
+    "| # | Claim | Number |",
+    "|---|---|---|",
+    "| 2.1 | Deep Sets forecasts onsets | 0.909 AUC |",
+    "| 2.2 | Earlier steps help, see row 2.1 | 0.877 |",
+    "",
+    "As Table 3 and section 4.2 show, the AUC is 0.915.",
+  ].join("\n");
+  const found = numbersIn(doc).map((n) => n.text);
+  expect(found).toEqual(["0.909", "0.877", "0.915"]);
+});

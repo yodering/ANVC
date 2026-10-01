@@ -133,7 +133,14 @@ export function receipt(rows: Activity[], statusOf?: (ids: string[]) => Map<stri
   if (shown.size) parts.push(`showed ${plural(shown.size, "past attempt")}`);
   if (searches) parts.push(`the agent searched ${searches === 1 ? "once" : `${searches} times`}`);
   if (opened.size) parts.push(`opened ${plural(opened.size, "record")} in full`);
-  for (const r of recorded) parts.push(r.outcome === "result" ? `recorded a result: ${r.titles?.[0] ?? ""}`.trim() : `recorded ${r.outcome ?? "an"} attempt (${r.tier ?? "shared"})`);
+  // Counted, with one named when it's the only one: a session that recorded
+  // fifty results printed fifty of them in one line.
+  const results = recorded.filter((r) => r.outcome === "result");
+  if (results.length === 1) parts.push(`recorded a result: ${results[0]!.titles?.[0] ?? ""}`.trim());
+  else if (results.length) parts.push(`recorded ${results.length} results`);
+  const attempts = recorded.filter((r) => r.outcome !== "result");
+  if (attempts.length === 1) parts.push(`recorded ${attempts[0]!.outcome ?? "an"} attempt (${attempts[0]!.tier ?? "shared"})`);
+  else if (attempts.length) parts.push(`recorded ${attempts.length} attempts (${[...Map.groupBy(attempts, (r) => r.outcome ?? "other")].map(([o, rs]) => `${rs.length} ${o}`).join(", ")})`);
   if (retired) parts.push(`retired ${plural(retired, "record")}`);
   // The one line here that asks the person for something.
   if (proposed) parts.push(`the agent wants to retire ${plural(proposed, "record")}: anvc retire list`);

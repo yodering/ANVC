@@ -9,8 +9,8 @@ import { Database } from "bun:sqlite";
 import { isAbsolute as isAbsolute2 } from "path";
 
 // protocol/localonly.ts
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, rmSync, writeFileSync as writeFileSync2 } from "fs";
-import { dirname as dirname2, join as join4 } from "path";
+import { existsSync as existsSync4, mkdirSync as mkdirSync3, rmSync, writeFileSync as writeFileSync3 } from "fs";
+import { dirname as dirname2, join as join5 } from "path";
 
 // protocol/git.ts
 import { spawnSync } from "child_process";
@@ -50,6 +50,16 @@ function recordsTravel(repo) {
     return null;
   return (gitOrNull(repo, ["config", "--get-all", "remote.origin.fetch"]) ?? "").includes("refs/anvc/");
 }
+function recordsLeftBehind(repo) {
+  if (!recordsTravel(repo))
+    return null;
+  if (gitOrNull(repo, ["rev-list", "--count", "@{u}..HEAD"]) !== "0")
+    return null;
+  const names = (prefix) => readRefs(repo, prefix).map((r) => r.ref.slice(prefix.length));
+  const there = new Set(names("refs/remotes/origin/anvc/"));
+  return names("refs/anvc/").filter((r) => !there.has(r)).length;
+}
+var leftBehindLine = (n) => n ? `Your code is pushed, but ${n} ANVC record${n === 1 ? " isn't" : "s aren't"}: a push that names a branch sends only that branch. Run git push with no branch named.` : null;
 function configureRemote(repo, remote = "origin", dry = false) {
   const fetch2 = `remote.${remote}.fetch`, push = `remote.${remote}.push`;
   const values = (key) => (gitOrNull(repo, ["config", "--get-all", key]) ?? "").split(`
@@ -82,11 +92,11 @@ function unconfigureRemote(repo, remote = "origin") {
 }
 
 // protocol/policy.ts
-import { existsSync as existsSync2, readFileSync as readFileSync3 } from "fs";
-import { join as join3 } from "path";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
+import { join as join4 } from "path";
 
 // protocol/rawlog.ts
-import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
+import { closeSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { createHash, createHmac, randomBytes } from "crypto";
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from "path";
@@ -136,6 +146,19 @@ function realInside(repo, path) {
   const root = samePath(repo);
   const real = resolveExisting(resolve(repo, path));
   return below(root, real) === null ? null : real;
+}
+function readHead(path, max) {
+  try {
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.alloc(Math.min(max, fstatSync(fd).size));
+      return buf.subarray(0, readSync(fd, buf, 0, buf.length, 0)).toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
 }
 function resolveExisting(path) {
   const parent = dirname(path);
@@ -280,7 +303,7 @@ function collapse(text) {
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.4",
+  version: "0.4.5",
   private: true,
   type: "module",
   scripts: {
@@ -288,7 +311,7 @@ var package_default = {
     start: "bun trace/proxy/server.ts",
     "repo:init": "bun scripts/init-repo.ts",
     "repo:import": "bun scripts/import-repo.ts",
-    test: "bun test ./tests",
+    test: "bun test ./tests --timeout 30000",
     typecheck: "tsc --noEmit",
     check: "bun run typecheck && bun run test",
     "replay:prepare": "bun scripts/prepare-replay.ts",
@@ -317,30 +340,120 @@ var package_default = {
 };
 
 // protocol/version.ts
+import { spawn as spawn2 } from "child_process";
+import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "fs";
+import { homedir as homedir3 } from "os";
+import { delimiter, join as join3, resolve as resolve2 } from "path";
+
+// protocol/desktop.ts
 import { spawn } from "child_process";
-import { existsSync, readFileSync as readFileSync2, statSync } from "fs";
-import { homedir as homedir2 } from "os";
-import { delimiter, join as join2, resolve as resolve2 } from "path";
+import { chmodSync, copyFileSync, existsSync, mkdirSync as mkdirSync2, mkdtempSync, writeFileSync as writeFileSync2 } from "fs";
+import { homedir as homedir2, tmpdir } from "os";
+import { join as join2 } from "path";
+var RELEASES = "yodering/anvc";
+var which = (name) => Bun.which(name, { PATH: process.env.PATH ?? "" });
+function installerFor(assets, platform = process.platform, arch = process.arch, apt = Boolean(which("apt"))) {
+  const arm = arch === "arm64";
+  const suffix = platform === "darwin" ? `_${arm ? "aarch64" : "x64"}.dmg` : platform === "win32" ? `_${arm ? "arm64" : "x64"}-setup.exe` : platform === "linux" ? apt ? `_${arm ? "arm64" : "amd64"}.deb` : `_${arm ? "aarch64" : "amd64"}.AppImage` : null;
+  return suffix ? assets.find((a) => a.name.endsWith(suffix)) ?? null : null;
+}
+function desktopCommand() {
+  const onPath = which("anvc-desktop");
+  if (onPath)
+    return [onPath];
+  const local = join2(homedir2(), ".local", "bin", "anvc-desktop");
+  if (process.platform === "linux" && existsSync(local))
+    return [local];
+  if (process.platform === "darwin") {
+    const app = ["/Applications/anvc.app", join2(homedir2(), "Applications", "anvc.app")].find(existsSync);
+    return app ? ["open", "-n", app, "--args"] : null;
+  }
+  if (process.platform === "win32") {
+    const folders = [process.env.LOCALAPPDATA, process.env.ProgramFiles].filter(Boolean).map((f) => join2(f, "anvc"));
+    const exe = folders.flatMap((f) => ["anvc-desktop.exe", "anvc.exe"].map((n) => join2(f, n))).find(existsSync);
+    return exe ? [exe] : null;
+  }
+  return null;
+}
+async function latestAssets(repo) {
+  if (which("gh")) {
+    const p = Bun.spawnSync(["gh", "api", `repos/${repo}/releases/latest`], { stdout: "pipe", stderr: "pipe" });
+    if (p.success)
+      return release(JSON.parse(p.stdout.toString()));
+  }
+  const answer = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { accept: "application/vnd.github+json" } });
+  if (answer.status === 404)
+    throw new Error(`No release of ${repo} can be downloaded yet. If one is published, the repository is private: install gh and sign in with gh auth login.`);
+  if (!answer.ok)
+    throw new Error(`Couldn't read ${repo}'s latest release: GitHub answered ${answer.status}.`);
+  return release(await answer.json());
+}
+var release = (body) => ({ tag: body.tag_name, assets: body.assets.map((a) => ({ name: a.name, url: a.url })) });
+async function download(asset, into) {
+  const file = join2(into, asset.name);
+  if (which("gh")) {
+    const p = Bun.spawnSync(["gh", "api", "-H", "accept: application/octet-stream", asset.url.replace("https://api.github.com/", "")], { stdout: "pipe", stderr: "pipe" });
+    if (p.success) {
+      writeFileSync2(file, p.stdout);
+      return file;
+    }
+  }
+  const answer = await fetch(asset.url, { headers: { accept: "application/octet-stream" } });
+  if (!answer.ok)
+    throw new Error(`Couldn't download ${asset.name}: GitHub answered ${answer.status}.`);
+  writeFileSync2(file, Buffer.from(await answer.arrayBuffer()));
+  return file;
+}
+async function installDesktop(repo = RELEASES) {
+  const { tag, assets } = await latestAssets(repo);
+  const asset = installerFor(assets);
+  if (!asset) {
+    return `${repo}'s release ${tag} has no desktop app for ${process.platform} on ${process.arch}. From a clone of ANVC, \`bun run desktop:build\` builds one.`;
+  }
+  const file = await download(asset, mkdtempSync(join2(tmpdir(), "anvc-desktop-")));
+  if (process.platform === "darwin") {
+    spawn("open", [file], { detached: true, stdio: "ignore" }).unref();
+    return `Opened ${asset.name}. Drag anvc to Applications in the window that opened.`;
+  }
+  if (process.platform === "win32") {
+    spawn(file, [], { detached: true, stdio: "ignore" }).unref();
+    return `Started the installer, ${asset.name}. Follow it to finish.`;
+  }
+  if (asset.name.endsWith(".deb")) {
+    const command = ["sudo", "apt", "install", "-y", file];
+    if (!process.stdin.isTTY)
+      return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
+    const p = Bun.spawnSync(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+    return p.success ? `Installed the desktop app from ${asset.name}. It's in your app menu as anvc.` : `apt couldn't install it. To try again: ${command.join(" ")}`;
+  }
+  const bin = join2(homedir2(), ".local", "bin");
+  mkdirSync2(bin, { recursive: true });
+  copyFileSync(file, join2(bin, "anvc-desktop"));
+  chmodSync(join2(bin, "anvc-desktop"), 493);
+  return `Put the desktop app in ${join2(bin, "anvc-desktop")}. An AppImage needs FUSE; if it doesn't start, install libfuse2.`;
+}
+
+// protocol/version.ts
 var HOME = resolve2(import.meta.dir, "..");
-var CLI = [join2(HOME, "protocol", "cli.ts"), join2(HOME, "dist", "cli.js")].find((p) => existsSync(p)) ?? Bun.main;
-var SETUP = join2(HOME, "scripts", "setup.ts");
+var CLI = [join3(HOME, "protocol", "cli.ts"), join3(HOME, "dist", "cli.js")].find((p) => existsSync2(p)) ?? Bun.main;
+var SETUP = join3(HOME, "scripts", "setup.ts");
 var HOOKS_REVISION = 8;
-var stateHome = () => process.env.ANVC_STATE_HOME ?? join2(homedir2(), ".anvc");
-var claudeDir = () => process.env.CLAUDE_CONFIG_DIR || join2(homedir2(), ".claude");
-var codexDir = () => process.env.CODEX_HOME || join2(homedir2(), ".codex");
-var cursorDir = () => join2(homedir2(), ".cursor");
+var stateHome = () => process.env.ANVC_STATE_HOME ?? join3(homedir3(), ".anvc");
+var claudeDir = () => process.env.CLAUDE_CONFIG_DIR || join3(homedir3(), ".claude");
+var codexDir = () => process.env.CODEX_HOME || join3(homedir3(), ".codex");
+var cursorDir = () => join3(homedir3(), ".cursor");
 function version() {
   for (const file of ["package.json", ".claude-plugin/plugin.json"]) {
     try {
-      return JSON.parse(readFileSync2(join2(HOME, file), "utf8")).version ?? BUILT;
+      return JSON.parse(readFileSync2(join3(HOME, file), "utf8")).version ?? BUILT;
     } catch {}
   }
   return BUILT;
 }
 var BUILT = package_default.version;
-var managedBy = () => Bun.isStandaloneExecutable ? "desktop" : existsSync(join2(HOME, ".git")) ? "git" : "plugin";
+var managedBy = () => Bun.isStandaloneExecutable ? "desktop" : existsSync2(join3(HOME, ".git")) ? "git" : "plugin";
 var GLOBAL = "*";
-var installsFile = () => join2(stateHome(), "installs.json");
+var installsFile = () => join3(stateHome(), "installs.json");
 var installs = () => readJson(installsFile(), []);
 function writeInstalls(repo, agent, add) {
   const same = isRepo(repo);
@@ -357,7 +470,7 @@ function hooksBehind(repo, agent) {
   const entry = installs().find((i) => i.agent === agent && same(i.repo)) ?? installs().find((i) => i.repo === GLOBAL && i.agent === agent);
   return !entry || entry.hooks < HOOKS_REVISION;
 }
-var updateFile = () => join2(stateHome(), "update.json");
+var updateFile = () => join3(stateHome(), "update.json");
 function readUpdate(home = HOME) {
   let state = readJson(updateFile(), null);
   if (!state)
@@ -369,8 +482,22 @@ function readUpdate(home = HOME) {
   }
   return state;
 }
+function newestTag(lsRemote) {
+  const versions = [...lsRemote.matchAll(/refs\/tags\/v(\d+\.\d+\.\d+)$/gm)].map((m) => m[1]);
+  return versions.sort((a, b) => Bun.semver.order(b, a))[0] ?? null;
+}
 function checkForUpdate(home = HOME) {
   const checked = new Date().toISOString();
+  if (managedBy() === "plugin") {
+    const tags = Bun.spawnSync(["git", "ls-remote", "--tags", "--refs", `https://github.com/${RELEASES}.git`], {
+      stdout: "pipe",
+      stderr: "ignore",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      windowsHide: true
+    });
+    const latest = tags.success ? newestTag(tags.stdout.toString()) : null;
+    return save(latest ? { checked, behind: 0, changes: [], latest } : { checked, behind: 0, changes: [], error: "couldn't reach the anvc repository" });
+  }
   const upstream = gitOrNull(home, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
   if (!upstream)
     return save({ checked, behind: 0, changes: [], error: "this copy of anvc has no remote branch to compare with" });
@@ -394,17 +521,20 @@ function save(state) {
   return state;
 }
 function checkDaily() {
-  if (process.env.ANVC_NO_UPDATE_NOTICE || managedBy() !== "git")
+  if (process.env.ANVC_NO_UPDATE_NOTICE || managedBy() === "desktop")
     return;
   try {
     const file = updateFile();
-    if (existsSync(file) && Date.now() - statSync(file).mtimeMs < 86400000)
+    if (existsSync2(file) && Date.now() - statSync(file).mtimeMs < 86400000)
       return;
     save({ ...readUpdate() ?? { behind: 0, changes: [] }, checked: new Date().toISOString() });
-    spawn("bun", [join2(HOME, "protocol/cli.ts"), "update", "--check"], { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {}).unref();
+    spawn2("bun", [CLI, "update", "--check"], { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {}).unref();
   } catch {}
 }
 function updateLine(state) {
+  if (state?.latest && Bun.semver.order(state.latest, version()) > 0) {
+    return `ANVC ${state.latest} is out, and this is ${version()}. To update, run in a terminal: claude plugin marketplace update anvc && claude plugin update anvc@anvc, then start a new session.`;
+  }
   if (!state || !state.behind)
     return null;
   return `ANVC has ${state.behind} update${state.behind === 1 ? "" : "s"} ready. Run: bun run anvc update`;
@@ -428,7 +558,7 @@ function pullUpdate(home = HOME) {
   return { changes, depsChanged: lock() !== lockBefore };
 }
 function updatePlugin() {
-  const bin = Bun.which("claude", { PATH: `${process.env.PATH ?? ""}${delimiter}${join2(homedir2(), ".local", "bin")}` });
+  const bin = Bun.which("claude", { PATH: `${process.env.PATH ?? ""}${delimiter}${join3(homedir3(), ".local", "bin")}` });
   if (!bin)
     return null;
   const claude = (...args) => Bun.spawnSync([bin, "plugin", ...args], { stdout: "pipe", stderr: "pipe", windowsHide: true });
@@ -466,7 +596,7 @@ ${changes.slice(0, 15).map((c) => `  ${c}`).join(`
       lines.push("Dependencies changed; installed them.");
       Bun.spawnSync(["bun", "install"], { cwd: HOME, stdout: "ignore", stderr: "ignore", windowsHide: true });
     }
-    const places = installs().filter((i) => i.repo === GLOBAL || existsSync(i.repo));
+    const places = installs().filter((i) => i.repo === GLOBAL || existsSync2(i.repo));
     for (const i of places) {
       const run = Bun.spawnSync([
         "bun",
@@ -569,7 +699,7 @@ var PRESETS = {
 };
 var DEFAULT_PRESET = "team";
 var file = (repo) => marker(repo, "policy.json");
-var defaultsFile = () => join3(stateHome(), "defaults.json");
+var defaultsFile = () => join4(stateHome(), "defaults.json");
 var readDefaults = () => readJson(defaultsFile(), {});
 function writeDefaults(change) {
   const next = { ...readDefaults(), ...change };
@@ -579,11 +709,11 @@ function writeDefaults(change) {
 function readPolicy(repo) {
   const path = file(repo);
   const everywhere = readDefaults().preset;
-  if ((!path || !existsSync2(path)) && everywhere && Object.hasOwn(PRESETS, everywhere)) {
+  if ((!path || !existsSync3(path)) && everywhere && Object.hasOwn(PRESETS, everywhere)) {
     return { preset: everywhere, ...structuredClone(PRESETS[everywhere].policy), chosen: true };
   }
   const base = { preset: DEFAULT_PRESET, ...PRESETS[DEFAULT_PRESET].policy };
-  if (!path || !existsSync2(path))
+  if (!path || !existsSync3(path))
     return { ...base, chosen: false };
   try {
     const saved = JSON.parse(readFileSync3(path, "utf8"));
@@ -655,16 +785,16 @@ function importPolicy(line) {
 var LOCAL_ONLY_REFUSAL = "This repository is local only: ANVC keeps everything on this computer. To change that, turn off Local only in Settings, or run: anvc local off";
 function marker(repo, name = "local-only") {
   const dir = gitOrNull(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  return dir ? join4(dir, "anvc", name) : null;
+  return dir ? join5(dir, "anvc", name) : null;
 }
 function isLocalOnly(repo) {
   const path = marker(repo);
   if (path === null)
     return false;
-  if (existsSync3(path))
+  if (existsSync4(path))
     return true;
   const off = marker(repo, "local-off");
-  return Boolean(readDefaults().localOnly) && !(off && existsSync3(off));
+  return Boolean(readDefaults().localOnly) && !(off && existsSync4(off));
 }
 function setLocalOnly(repo, on) {
   const path = marker(repo);
@@ -674,15 +804,15 @@ function setLocalOnly(repo, on) {
   if (!on) {
     rmSync(path, { force: true });
     if (readDefaults().localOnly) {
-      mkdirSync2(dirname2(off), { recursive: true });
-      writeFileSync2(off, `Local only is off here, whatever the default.
+      mkdirSync3(dirname2(off), { recursive: true });
+      writeFileSync3(off, `Local only is off here, whatever the default.
 `);
     }
     return { unset: 0 };
   }
   rmSync(off, { force: true });
-  mkdirSync2(dirname2(path), { recursive: true });
-  writeFileSync2(path, `Local only since ${new Date().toISOString()}. Nothing ANVC keeps is pushed or fetched.
+  mkdirSync3(dirname2(path), { recursive: true });
+  writeFileSync3(path, `Local only since ${new Date().toISOString()}. Nothing ANVC keeps is pushed or fetched.
 `);
   let unset = 0;
   for (const remote of remoteNames(repo))
@@ -693,7 +823,7 @@ function setLocalOnly(repo, on) {
 // protocol/record.ts
 import { spawnSync as spawnSync2 } from "child_process";
 import { createHash as createHash2 } from "crypto";
-import { homedir as homedir3 } from "os";
+import { homedir as homedir4 } from "os";
 
 // protocol/scrub.ts
 var MAX_SCRUB_CHARS = 8192;
@@ -1102,7 +1232,7 @@ function refFor(sessionId, seq, tier = "shared") {
     throw new Error("Invalid sequence");
   return `${TIER_PREFIX[tier]}${session}/${String(seq).padStart(6, "0")}`;
 }
-function portable(record, repo, home = homedir3()) {
+function portable(record, repo, home = homedir4()) {
   const hasHome = Boolean(home) && home !== "/";
   const repoAt = windowsPath(repo), homeAt = hasHome ? windowsPath(home) : null;
   const out = eachString(record, (value) => {
@@ -1851,8 +1981,8 @@ function partMaps(db, repo) {
 }
 
 // protocol/ingest.ts
-import { existsSync as existsSync4, readFileSync as readFileSync4 } from "fs";
-import { isAbsolute as isAbsolute3, join as join5 } from "path";
+import { existsSync as existsSync5, readFileSync as readFileSync4 } from "fs";
+import { isAbsolute as isAbsolute3, join as join6 } from "path";
 
 // protocol/shell-paths.ts
 function literal(token) {
@@ -1988,7 +2118,7 @@ ${event.output}`);
         for (const { path, kind } of shellPaths(event.command)) {
           if (moved && !isAbsolute3(path))
             continue;
-          const absolute = isAbsolute3(path) ? path : join5(event.cwd, path);
+          const absolute = isAbsolute3(path) ? path : join6(event.cwd, path);
           actions.push({ kind, path: absolute, ts: event.ts });
           if (kind === "write") {
             written.add(absolute);
@@ -1997,7 +2127,7 @@ ${event.output}`);
         }
       }
     }
-    const relative = [...new Set([...written].map((p) => [p, toRepo(p)]).filter(([p, rel]) => rel !== null && (!guessed.has(p) || existsSync4(p) || gitOrNull(repo, ["log", "-1", "--format=%H", "--all", "--", rel]))).map(([, rel]) => rel))];
+    const relative = [...new Set([...written].map((p) => [p, toRepo(p)]).filter(([p, rel]) => rel !== null && (!guessed.has(p) || existsSync5(p) || gitOrNull(repo, ["log", "-1", "--format=%H", "--all", "--", rel]))).map(([, rel]) => rel))];
     const abandoned = relative.length > 0 && (opts.fresh ? relative.every((p) => !dirty.has(p) && !gitOrNull(repo, ["log", "-1", "--format=%H", `--since=${turn[0].ts}`, "--", p])) : relative.every((p) => dirty.has(p)));
     if (!relative.length && !failures.length && !delegations.length)
       continue;
@@ -2080,10 +2210,10 @@ function ingest(repo, events, opts = {}) {
 }
 
 // protocol/activity.ts
-import { appendFileSync, mkdirSync as mkdirSync3 } from "fs";
-import { homedir as homedir4 } from "os";
-import { basename as basename2, dirname as dirname3, join as join6 } from "path";
-var dir = () => process.env.ANVC_ACTIVITY_DIR ?? join6(homedir4(), ".anvc", "activity");
+import { appendFileSync, mkdirSync as mkdirSync4 } from "fs";
+import { homedir as homedir5 } from "os";
+import { basename as basename2, dirname as dirname3, join as join7 } from "path";
+var dir = () => process.env.ANVC_ACTIVITY_DIR ?? join7(homedir5(), ".anvc", "activity");
 function repoRoot(cwd) {
   const common = gitOrNull(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (common?.endsWith("/.git"))
@@ -2092,9 +2222,9 @@ function repoRoot(cwd) {
 }
 function appendDaily(dir, row) {
   try {
-    mkdirSync3(dir, { recursive: true, mode: 448 });
+    mkdirSync4(dir, { recursive: true, mode: 448 });
     const day = new Date().toISOString().slice(0, 10);
-    appendFileSync(join6(dir, `${day}.jsonl`), `${JSON.stringify({ ts: new Date().toISOString(), ...row })}
+    appendFileSync(join7(dir, `${day}.jsonl`), `${JSON.stringify({ ts: new Date().toISOString(), ...row })}
 `, { mode: 384 });
   } catch {}
 }
@@ -2153,8 +2283,16 @@ function receipt(rows, statusOf) {
     parts.push(`the agent searched ${searches === 1 ? "once" : `${searches} times`}`);
   if (opened.size)
     parts.push(`opened ${plural(opened.size, "record")} in full`);
-  for (const r of recorded)
-    parts.push(r.outcome === "result" ? `recorded a result: ${r.titles?.[0] ?? ""}`.trim() : `recorded ${r.outcome ?? "an"} attempt (${r.tier ?? "shared"})`);
+  const results = recorded.filter((r) => r.outcome === "result");
+  if (results.length === 1)
+    parts.push(`recorded a result: ${results[0].titles?.[0] ?? ""}`.trim());
+  else if (results.length)
+    parts.push(`recorded ${results.length} results`);
+  const attempts = recorded.filter((r) => r.outcome !== "result");
+  if (attempts.length === 1)
+    parts.push(`recorded ${attempts[0].outcome ?? "an"} attempt (${attempts[0].tier ?? "shared"})`);
+  else if (attempts.length)
+    parts.push(`recorded ${attempts.length} attempts (${[...Map.groupBy(attempts, (r) => r.outcome ?? "other")].map(([o, rs]) => `${rs.length} ${o}`).join(", ")})`);
   if (retired)
     parts.push(`retired ${plural(retired, "record")}`);
   if (proposed)
@@ -2201,9 +2339,9 @@ function allActivity(repo) {
 }
 
 // protocol/agents.ts
-import { closeSync, mkdirSync as mkdirSync4, openSync, readFileSync as readFileSync5, readSync, statSync as statSync2, writeFileSync as writeFileSync3 } from "fs";
-import { homedir as homedir5 } from "os";
-import { join as join8 } from "path";
+import { closeSync as closeSync2, mkdirSync as mkdirSync5, openSync as openSync2, readFileSync as readFileSync5, readSync as readSync2, statSync as statSync2, writeFileSync as writeFileSync4 } from "fs";
+import { homedir as homedir6 } from "os";
+import { join as join9 } from "path";
 
 // protocol/args.ts
 function flag(argv, name, fallback) {
@@ -2231,8 +2369,8 @@ var shellWord = (w) => /^[\w@%+=:,./-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\
 var cmdWord = (w) => /^[\w@+=:,./\\-]+$/.test(w) ? w : `"${w.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`.replace(/[()[\]%!^"`<>&|;, *?]/g, "^$&");
 
 // protocol/folders.ts
-import { join as join7 } from "path";
-var file2 = () => join7(stateHome(), "folders.json");
+import { join as join8 } from "path";
+var file2 = () => join8(stateHome(), "folders.json");
 var read = () => readJson(file2(), {});
 var write = (store) => writeJson(file2(), store);
 function folderOn(given) {
@@ -2323,7 +2461,7 @@ function toolCall(name, input) {
       return { tool, paths: path ? [path] : [], command: null, bytes };
   }
 }
-var sessionsFile = () => join8(process.env.ANVC_STATE_DIR ?? join8(homedir5(), ".anvc"), "sessions.json");
+var sessionsFile = () => join9(process.env.ANVC_STATE_DIR ?? join9(homedir6(), ".anvc"), "sessions.json");
 function readSessions() {
   try {
     return JSON.parse(readFileSync5(sessionsFile(), "utf8"));
@@ -2339,8 +2477,8 @@ function noteSession(agent, repo, session) {
       return;
     all[key] = { session, ts: new Date().toISOString() };
     const file = sessionsFile();
-    mkdirSync4(join8(file, ".."), { recursive: true });
-    writeFileSync3(file, JSON.stringify(all));
+    mkdirSync5(join9(file, ".."), { recursive: true });
+    writeFileSync4(file, JSON.stringify(all));
   } catch {}
 }
 function currentSession(agent, repo) {
@@ -2354,7 +2492,7 @@ function shadowedByProject() {
     return false;
   for (const name of ["settings.json", "settings.local.json"]) {
     try {
-      if (readFileSync5(join8(dir, ".claude", name), "utf8").includes("emitters/claude-code/"))
+      if (readFileSync5(join9(dir, ".claude", name), "utf8").includes("emitters/claude-code/"))
         return true;
     } catch {}
   }
@@ -2460,11 +2598,11 @@ function codexExit(transcript, command) {
   let text = "";
   try {
     const size = statSync2(transcript).size;
-    const fd = openSync(transcript, "r");
+    const fd = openSync2(transcript, "r");
     const start = Math.max(0, size - 256 * 1024);
     const buf = Buffer.alloc(size - start);
-    readSync(fd, buf, 0, buf.length, start);
-    closeSync(fd);
+    readSync2(fd, buf, 0, buf.length, start);
+    closeSync2(fd);
     text = buf.toString("utf8");
   } catch {
     return null;
@@ -2594,8 +2732,8 @@ function errorLine(output) {
 
 // protocol/recheck.ts
 import { createHash as createHash3 } from "crypto";
-import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync4 } from "fs";
-import { join as join9 } from "path";
+import { mkdirSync as mkdirSync6, writeFileSync as writeFileSync5 } from "fs";
+import { join as join10 } from "path";
 var COMMANDS = [
   "bun test",
   "bun run typecheck",
@@ -2637,7 +2775,7 @@ function verify(repo, command) {
     return null;
   }
 }
-var cacheFile = () => join9(stateRoot(), "rechecks.json");
+var cacheFile = () => join10(stateRoot(), "rechecks.json");
 var readCache = () => readJson(cacheFile(), {});
 function keyFor(repo, command) {
   const state = gitOrNull(repo, ["rev-parse", "HEAD"]) ?? "";
@@ -2661,8 +2799,8 @@ function verifyCached(repo, command) {
   cache[key] = { result, ts: new Date().toISOString() };
   const entries = Object.entries(cache).sort((a, b) => b[1].ts.localeCompare(a[1].ts)).slice(0, 200);
   try {
-    mkdirSync5(join9(cacheFile(), ".."), { recursive: true });
-    writeFileSync4(cacheFile(), JSON.stringify(Object.fromEntries(entries)));
+    mkdirSync6(join10(cacheFile(), ".."), { recursive: true });
+    writeFileSync5(cacheFile(), JSON.stringify(Object.fromEntries(entries)));
   } catch {}
   return result;
 }
@@ -2767,8 +2905,8 @@ function whyLine(db, repo, path, line) {
 
 // protocol/results.ts
 import { createHash as createHash4 } from "crypto";
-import { closeSync as closeSync2, lstatSync, mkdirSync as mkdirSync7, openSync as openSync2, readdirSync as readdirSync2, readFileSync as readFileSync6, readSync as readSync2, rmSync as rmSync2, statSync as statSync4, writeFileSync as writeFileSync5 } from "fs";
-import { dirname as dirname5, join as join11, resolve as resolve4 } from "path";
+import { closeSync as closeSync3, lstatSync, mkdirSync as mkdirSync8, openSync as openSync3, readdirSync as readdirSync2, readFileSync as readFileSync6, readSync as readSync3, rmSync as rmSync2, statSync as statSync4, writeFileSync as writeFileSync6 } from "fs";
+import { dirname as dirname5, join as join12, resolve as resolve4 } from "path";
 
 // protocol/retire.ts
 function headAnchor(repo) {
@@ -2868,7 +3006,7 @@ function personDecide(db, repo, target, decision, note, reason) {
 }
 
 // protocol/runs.ts
-import { existsSync as existsSync5, statSync as statSync3 } from "fs";
+import { existsSync as existsSync6, statSync as statSync3 } from "fs";
 import { isAbsolute as isAbsolute4, resolve as resolve3 } from "path";
 var OUTPUT_FLAGS = /^(-o|--out|--output|--outfile|--out-file|--output-file|--out-dir|--outdir|--output-dir|--output_dir|--save|--save-to|--save-dir|--save_dir|--dest|--results|--results-dir|--log-dir|--logdir|--run-dir|--checkpoint-dir)$/;
 function words(command) {
@@ -2966,7 +3104,7 @@ function runFiles(command, cwd, repo) {
   }
   const print = (rel, folders) => {
     const abs = resolve3(repo, rel);
-    if (rel === "." || rel.startsWith(".git") || !existsSync5(abs))
+    if (rel === "." || rel.startsWith(".git") || !existsSync6(abs))
       return null;
     try {
       if (!folders && statSync3(abs).isDirectory())
@@ -2984,9 +3122,9 @@ function runFiles(command, cwd, repo) {
 }
 
 // protocol/runlog.ts
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync6 } from "fs";
-import { dirname as dirname4, join as join10 } from "path";
-var runsDir = (repo) => join10(captureRoot(), "runs", repoKey(repo));
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync7 } from "fs";
+import { dirname as dirname4, join as join11 } from "path";
+var runsDir = (repo) => join11(captureRoot(), "runs", repoKey(repo));
 var runsFiles = (repo) => jsonl(runsDir(repo));
 
 class Keep {
@@ -3076,8 +3214,8 @@ async function trackRun(command, cwd = process.cwd()) {
       files = found.outputs.map((f) => f.path);
     } catch {}
   }
-  const file = join10(runsDir(repo), `${row.ts.toString().slice(0, 10)}.jsonl`);
-  mkdirSync6(dirname4(file), { recursive: true, mode: 448 });
+  const file = join11(runsDir(repo), `${row.ts.toString().slice(0, 10)}.jsonl`);
+  mkdirSync7(dirname4(file), { recursive: true, mode: 448 });
   appendFileSync2(file, `${JSON.stringify(row)}
 `, { mode: 384 });
   return { code, logged: true, files };
@@ -3089,7 +3227,7 @@ var DATA_MODES = {
   results: { label: "On", what: "Your agent records the numbers you rely on, with where they came from, and ANVC checks them whenever they're shown." }
 };
 var DEFAULT_DATA_MODE = "results";
-var everywhereFile = () => join11(stateHome(), "data.json");
+var everywhereFile = () => join12(stateHome(), "data.json");
 var projectFile = (repo) => marker(repo, "data.json");
 var readMode = (file) => {
   const mode = file ? readJson(file, null)?.mode : undefined;
@@ -3144,20 +3282,20 @@ function hashFile(path, size) {
     return { hash: `sha256:${createHash4("sha256").update(readFileSync6(path)).digest("hex")}`, bytes: size };
   }
   const h = createHash4("sha256").update(String(size));
-  const fd = openSync2(path, "r");
+  const fd = openSync3(path, "r");
   try {
     for (const at of [0, Math.floor(size / 2), size - SAMPLE_BYTES]) {
       const buf = Buffer.alloc(SAMPLE_BYTES);
-      readSync2(fd, buf, 0, SAMPLE_BYTES, at);
+      readSync3(fd, buf, 0, SAMPLE_BYTES, at);
       h.update(buf);
     }
   } finally {
-    closeSync2(fd);
+    closeSync3(fd);
   }
   return { hash: `sampled:${h.digest("hex")}`, bytes: size };
 }
 var cached = null;
-var printsFile = () => join11(stateRoot(), "prints.json");
+var printsFile = () => join12(stateRoot(), "prints.json");
 function prints() {
   if (cached)
     return cached;
@@ -3173,8 +3311,8 @@ function savePrints() {
     return;
   const entries = [...cached.entries()].slice(-5000);
   try {
-    mkdirSync7(dirname5(printsFile()), { recursive: true });
-    writeFileSync5(printsFile(), JSON.stringify(Object.fromEntries(entries)));
+    mkdirSync8(dirname5(printsFile()), { recursive: true });
+    writeFileSync6(printsFile(), JSON.stringify(Object.fromEntries(entries)));
   } catch {}
 }
 function folderPrint(root) {
@@ -3191,7 +3329,7 @@ function folderPrint(root) {
     for (const name of names) {
       if (files >= MAX_FOLDER_FILES || name === ".git" || name === "node_modules")
         continue;
-      const path = join11(dir, name);
+      const path = join12(dir, name);
       let stat;
       try {
         stat = statSync4(path);
@@ -3217,6 +3355,13 @@ function folderPrint(root) {
   };
   walk(root);
   return { hash: `${files >= MAX_FOLDER_FILES ? "folder-partial" : "folder"}:${h.digest("hex")}`, bytes };
+}
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return JSON.parse(text.replace(/"(?:\\.|[^"\\])*"|-?\bInfinity\b|\bNaN\b/g, (m) => m[0] === '"' ? m : "null"));
+  }
 }
 function readSmall(path, max) {
   try {
@@ -3261,13 +3406,20 @@ function table(path, text) {
   endRow();
   return rows;
 }
+function rowsNamed(rows, name) {
+  const header = rows[0] ?? [];
+  const pairs = name.includes("=") ? name.split(",").map((p) => p.split("=")).map(([col, ...v]) => [header.indexOf(col.trim()), v.join("=").trim()]) : null;
+  if (!pairs || pairs.some(([col]) => col < 0))
+    return rows.slice(1).filter((r) => r[0] === name);
+  return rows.slice(1).filter((r) => pairs.every(([col, v]) => r[col] === v));
+}
 function readValue(path, key) {
   const text = readSmall(path, 16 * 1024 * 1024);
   if (text === null)
     return null;
   if (/\.json$/i.test(path)) {
     try {
-      let at = JSON.parse(text);
+      let at = parseJson(text);
       for (const part of key.split(".")) {
         if (at === null || typeof at !== "object")
           return null;
@@ -3282,9 +3434,9 @@ function readValue(path, key) {
     const rows = table(path, text);
     for (let at = key.indexOf("/");at >= 0; at = key.indexOf("/", at + 1)) {
       const col = rows[0]?.indexOf(key.slice(at + 1)) ?? -1;
-      const hit = col >= 0 ? rows.find((r) => r[0] === key.slice(0, at)) : undefined;
-      if (hit?.[col] !== undefined)
-        return hit[col];
+      const hits = col >= 0 ? rowsNamed(rows, key.slice(0, at)) : [];
+      if (hits.length === 1 && hits[0][col] !== undefined)
+        return hits[0][col];
     }
     return null;
   }
@@ -3352,10 +3504,10 @@ function recordResult(repo, given, actor) {
   let source;
   if (input.source?.path) {
     const path = inside(repo, input.source.path);
-    const print = fingerprint(join11(repo, path));
+    const print = fingerprint(join12(repo, path));
     if (!print)
       notes.push(`${path} isn't here, so ANVC couldn't fingerprint it or check the value.`);
-    const read = print && input.source.key ? readValue(join11(repo, path), input.source.key) : null;
+    const read = print && input.source.key ? readValue(join12(repo, path), input.source.key) : null;
     if (input.source.key && print) {
       if (read === null)
         notes.push(`Couldn't find ${input.source.key} in ${path}.`);
@@ -3383,7 +3535,7 @@ function recordResult(repo, given, actor) {
   }
   const depends = (input.depends ?? []).map((p) => {
     const path = inside(repo, p);
-    const print = fingerprint(join11(repo, path));
+    const print = fingerprint(join12(repo, path));
     if (!print)
       notes.push(`${path} isn't here, so it can't be checked later.`);
     return { path, ...print ? { hash: print.hash, bytes: print.bytes } : {} };
@@ -3423,11 +3575,15 @@ function recordStatus(repo, of, status, why, actor) {
   const target = listResults(repo).find((r) => r.id === of);
   if (!target)
     throw new Error(`no result ${of}`);
+  const now = (path) => fingerprintInside(repo, path);
+  const fresh = status === "current" || status === "locked";
+  const source = fresh && target.source ? { ...target.source, ...now(target.source.path) ?? {} } : undefined;
+  const depends = fresh && target.depends.length ? target.depends.map((d) => ({ path: d.path, ...now(d.path) ?? {} })) : undefined;
   const record = {
     anvc: 0,
     id: ulid(),
     anchor: headAnchor(repo),
-    result: { name: target.name, of, status },
+    result: { name: target.name, of, status, ...source ? { source } : {}, ...depends ? { depends } : {} },
     session: sessionOf(actor),
     intent: { goal: `${status[0].toUpperCase()}${status.slice(1)}: ${target.name}`.slice(0, 200), ...why ? { why: why.slice(0, 2000) } : {} },
     outcome: { status: "kept" },
@@ -3488,6 +3644,10 @@ function listResults(repo) {
       view.proposed = { status, why: why ?? "", ts: record.ts };
       continue;
     }
+    if (record.result.source)
+      view.source = record.result.source;
+    if (record.result.depends)
+      view.depends = record.result.depends;
     view.status = status;
     view.by = person ? "person" : "agent";
     if (why)
@@ -3506,11 +3666,14 @@ function listResults(repo) {
   }
   return [...roots.values()].sort((a, b) => b.ts.localeCompare(a.ts));
 }
+var fingerprintInside = (repo, path) => {
+  const real = realInside(repo, path);
+  return real ? fingerprint(real) : null;
+};
 var stateOf = (repo, path, hash) => {
   if (!hash)
     return "unknown";
-  const real = realInside(repo, path);
-  const now = real ? fingerprint(real) : null;
+  const now = fingerprintInside(repo, path);
   return !now ? "missing" : now.hash === hash ? "same" : "changed";
 };
 function checkResult(repo, view, all) {
@@ -3522,7 +3685,9 @@ function checkResult(repo, view, all) {
     const from = everyone.find((r) => r.id === id);
     return { id, name: from?.name ?? id, status: from?.status ?? "missing" };
   });
-  const stale = Boolean(source && (source.state === "changed" || source.state === "missing")) || depends.some((d) => d.state === "changed" || d.state === "missing") || derived.some((d) => d.status === "invalid" || d.status === "superseded" || d.status === "missing");
+  const sourceStale = Boolean(source && (source.state === "missing" || source.state === "changed" && (!view.source?.key || source.now === null || !sameNumber(view.value, source.now))));
+  const live = view.status !== "superseded" && view.status !== "invalid";
+  const stale = live && (sourceStale || depends.some((d) => d.state === "changed" || d.state === "missing") || derived.some((d) => d.status === "invalid" || d.status === "superseded" || d.status === "missing"));
   return { source, depends, derived, stale };
 }
 var day = (ts) => new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -3535,7 +3700,7 @@ function describe(view, check, all = []) {
   const lines = [`- ${view.name} = ${view.value}${view.part ? ` [${view.part}]` : ""} \xB7 ${status}` + `${view.status === "locked" ? ` by the person, ${day(view.history.findLast((h) => h.status === "locked" && !h.proposed)?.ts ?? view.ts)}` : `, recorded ${day(view.ts)}`}` + ` \xB7 id ${view.id}`];
   if (view.source) {
     const where = `${view.source.path}${view.source.key ? ` \u2192 ${view.source.key}` : ""}`;
-    const state = check.source?.state === "same" ? "unchanged since" : check.source?.state === "changed" ? `changed since${check.source.now !== null && !sameNumber(view.value, check.source.now) ? `, now holds ${check.source.now}` : ""}` : check.source?.state === "missing" ? "not on this computer" : "not fingerprinted";
+    const state = check.source?.state === "same" ? "unchanged since" : check.source?.state === "changed" ? `changed since${check.source.now === null ? "" : sameNumber(view.value, check.source.now) ? `, still holds ${check.source.now}` : `, now holds ${check.source.now}`}` : check.source?.state === "missing" ? "not on this computer" : "not fingerprinted";
     lines.push(`  from: ${where} (${state})`);
   }
   if (view.command)
@@ -3596,7 +3761,7 @@ function values(path) {
   };
   if (/\.json$/i.test(path)) {
     try {
-      walk(JSON.parse(text), "");
+      walk(parseJson(text), "");
     } catch {}
     return out;
   }
@@ -3604,19 +3769,35 @@ function values(path) {
     text.split(`
 `).slice(0, 5000).forEach((line, i) => {
       try {
-        walk(JSON.parse(line), `line ${i + 1}`);
+        walk(parseJson(line), `line ${i + 1}`);
       } catch {}
     });
-    return out;
+    const field = (key) => key.replace(/^line \d+\.?/, "");
+    const lines = Map.groupBy(out, (v) => field(v.key));
+    return out.filter((v) => lines.get(field(v.key)).length <= 100);
   }
   if (/\.(csv|tsv)$/i.test(path)) {
     const rows = table(path, text);
     const header = rows[0] ?? [];
-    for (const row of rows.slice(1, 5000))
-      row.forEach((cell, i) => {
-        if (i > 0 && /^-?\d/.test(cell))
-          out.push({ key: `${row[0]}/${header[i] ?? i}`, value: cell });
-      });
+    const data = rows.slice(1, 5000);
+    const lead = (r, n) => r.slice(0, n).join("\x00");
+    const counts = [];
+    for (const row of data) {
+      let name = null;
+      for (let n = 1;n <= header.length && name === null; n++) {
+        const c = counts[n] ??= Map.groupBy(data, (r) => lead(r, n));
+        if (c.get(lead(row, n)).length !== 1)
+          continue;
+        if (n > 1 && [...header.slice(0, n), ...row.slice(0, n)].some((v) => /[,=]/.test(v)))
+          break;
+        name = n === 1 ? row[0] : header.slice(0, n).map((h, i) => `${h}=${row[i]}`).join(",");
+      }
+      if (name !== null)
+        row.forEach((cell, i) => {
+          if (i > 0 && /^-?\d/.test(cell))
+            out.push({ key: `${name}/${header[i] ?? i}`, value: cell });
+        });
+    }
     return out;
   }
   if (/\.(txt|log|out|yaml|yml|tex)$/i.test(path)) {
@@ -3639,9 +3820,10 @@ function matcher(text) {
   const written = text.match(/-?[\d.,]+(?:e[-+]?\d+)?\s*%?/i)?.[0] ?? text;
   return (line) => (line.replace(/\u2212/g, "-").match(NUMBERS) ?? []).some((n) => sameNumber(written, n));
 }
-var SKIP_DIRS = new Set(["node_modules", "venv", "env", "__pycache__", "site-packages", "dist", "build", "target", "coverage"]);
+var SKIP_DIRS = new Set(["node_modules", "vendor", "venv", "env", "__pycache__", "site-packages", "dist", "build", "target", "coverage"]);
+var skipDir = (name) => name.startsWith(".") || SKIP_DIRS.has(name);
 var DATA_FILE = /\.(json|jsonl|csv|tsv|log|out|txt|ya?ml)$/i;
-var MANIFEST = /^(package(-lock)?\.json|bun\.lockb?|yarn\.lock|pnpm-lock\.yaml|tsconfig.*\.json|composer\.(json|lock)|Pipfile\.lock|poetry\.lock|requirements.*\.txt|\.?[\w-]*rc\.json)$/i;
+var MANIFEST = /^(package(-lock)?\.json|bun\.lockb?|yarn\.lock|pnpm-lock\.yaml|[jt]sconfig.*\.json|composer\.(json|lock)|Pipfile\.lock|poetry\.lock|requirements.*\.txt|\.?[\w-]*rc\.json)$/i;
 var PLAIN_NUMBER = /^-?\d+(?:\.\d+)?(?:e[-+]?\d+)?%?$/i;
 function dataFiles(repo) {
   const out = [];
@@ -3656,9 +3838,9 @@ function dataFiles(repo) {
     for (const e of entries) {
       if (out.length >= 2000 || bytes > 96 * 1024 * 1024)
         return;
-      const abs = join11(dir, e.name);
+      const abs = join12(dir, e.name);
       if (e.isDirectory()) {
-        if (depth < 8 && !e.name.startsWith(".") && !SKIP_DIRS.has(e.name))
+        if (depth < 8 && !skipDir(e.name))
           walk(abs, depth + 1);
         continue;
       }
@@ -3724,7 +3906,10 @@ function whence(repo, text, limit = 8, scope = {}, context = {}) {
       const real = realInside(repo, path);
       if (!real)
         continue;
-      for (const { key, value } of values(real)) {
+      const cache = scope.values ??= new Map;
+      if (!cache.has(real))
+        cache.set(real, values(real));
+      for (const { key, value } of cache.get(real)) {
         if (!sameNumber(written, value))
           continue;
         const now = fingerprint(real);
@@ -3808,6 +3993,8 @@ var keyOf = (m) => m[1] !== undefined ? `${m[1]}/${m[2]}` : m[3] !== undefined ?
 function unTex(line) {
   return line.replace(/(?<!\\)%.*$/, "").replace(/\\(?:cite[tp]?|ref|eqref|autoref|[cC]ref|label|url|href|includegraphics|input|include)\*?(?:\[[^\]]*\])?\{[^}]*\}/g, " ").replace(/\\(?:num|SI|qty|SIrange)\{([^}]*)\}(?:\{[^}]*\})?/g, "$1").replace(/\{,\}/g, ",").replace(/\\%/g, "%").replace(/\\\\(\[[^\]]*\])?/g, " ").replace(/\\[a-zA-Z]+\*?/g, " ").replace(/[{}$~]/g, " ");
 }
+var ID_COLUMN = /^\s*(#|id|no\.?|nr\.?|row|item)\s*$/i;
+var REFERENCE = /\b(rows?|tables?|figs?\.?|figures?|sections?|sec\.|appendix|eqs?\.|equations?|lines?|\u00A7)\s*$/i;
 function numbersIn(text, options = {}) {
   const tex = options.tex ?? false;
   const out = [];
@@ -3829,7 +4016,8 @@ function numbersIn(text, options = {}) {
     for (const { line, text: t } of prose) {
       for (const part of t.split(/(?<=[.!?])\s+/)) {
         for (const m of part.matchAll(ITEM))
-          sentence.push({ line, key: keyOf(m) });
+          if (!REFERENCE.test(part.slice(0, m.index)))
+            sentence.push({ line, key: keyOf(m) });
         said += ` ${part}`;
         if (/[.!?]\s*$/.test(part))
           close();
@@ -3839,12 +4027,12 @@ function numbersIn(text, options = {}) {
     prose = [];
   };
   const tableRow = (cells, at, whole) => {
-    previous = cells.map(wordsOf);
+    previous = cells;
     rows++;
-    const row = cells.flatMap((cell, c) => [...cell.matchAll(ITEM)].map((m) => ({ key: keyOf(m), column: c })));
+    const row = cells.flatMap((cell, c) => ID_COLUMN.test(header[c] ?? "") ? [] : [...cell.matchAll(ITEM)].filter((m) => !REFERENCE.test(cell.slice(0, m.index))).map((m) => ({ key: keyOf(m), column: c })));
     const words = wordsOf(whole);
     for (const { key, column } of row)
-      out.push({ text: key, line: at, beside: [...new Set(row.map((r) => r.key).filter((k) => k !== key))], words: [...new Set([...words, ...header[column] ?? []])] });
+      out.push({ text: key, line: at, beside: [...new Set(row.map((r) => r.key).filter((k) => k !== key))], words: [...new Set([...words, ...wordsOf(header[column] ?? "")])] });
   };
   const endTable = () => {
     header = [];
@@ -4069,12 +4257,12 @@ function withoutMoves(repo, lines) {
 }
 
 // protocol/goals.ts
-import { existsSync as existsSync6, mkdirSync as mkdirSync8, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync9, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "fs";
 import { dirname as dirname6 } from "path";
 var GOAL_LABELS = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped" };
 var approvalOn = (repo) => {
   const path = marker(repo, "approve-goals");
-  return path !== null && existsSync6(path);
+  return path !== null && existsSync7(path);
 };
 function setApproval(repo, on) {
   const path = marker(repo, "approve-goals");
@@ -4084,8 +4272,8 @@ function setApproval(repo, on) {
     rmSync3(path, { force: true });
     return;
   }
-  mkdirSync8(dirname6(path), { recursive: true });
-  writeFileSync6(path, `Goals an agent adds or changes wait for the person to accept them.
+  mkdirSync9(dirname6(path), { recursive: true });
+  writeFileSync7(path, `Goals an agent adds or changes wait for the person to accept them.
 `);
 }
 var proposes = (repo, actor) => actor.kind === "agent" && approvalOn(repo);
@@ -4597,9 +4785,9 @@ function ruleCommand(repo, command, positional, argv) {
 import { existsSync as existsSync10, readFileSync as readFileSync12, statSync as statSync7 } from "fs";
 
 // protocol/tools.ts
-import { existsSync as existsSync7, readdirSync as readdirSync3, readFileSync as readFileSync9 } from "fs";
-import { homedir as homedir6 } from "os";
-import { basename as basename3, join as join12, resolve as resolve6 } from "path";
+import { existsSync as existsSync8, readdirSync as readdirSync3, readFileSync as readFileSync9 } from "fs";
+import { homedir as homedir7 } from "os";
+import { basename as basename3, join as join13, resolve as resolve6 } from "path";
 // scripts/hookfiles.ts
 var quoted = (path) => `"${path.replace(/["$`\\]/g, "\\$&")}"`;
 var isOurs = (entry) => /emitters\/claude-code\/(capture|inject|stop)\.ts/.test(JSON.stringify(entry));
@@ -4664,7 +4852,7 @@ var obj = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : {};
 var list = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : typeof v === "string" ? [v] : [];
 var json = (file) => obj(readJson(file, {}));
 var tilde = (text) => {
-  const home = homedir6();
+  const home = homedir7();
   return home && home !== "/" ? text.split(`${home}/`).join("~/").split(`${home}\\`).join("~\\") : text;
 };
 var SCRIPT = /\.(?:[cm]?js|ts|sh|bash|py|rb|pl|ps1)$/;
@@ -4737,16 +4925,16 @@ function hooks(map, where, file, state, anvc = false) {
 function skills(dir, where, state, anvc = false) {
   let names = [];
   try {
-    names = readdirSync3(dir).filter((n) => existsSync7(join12(dir, n, "SKILL.md"))).sort();
+    names = readdirSync3(dir).filter((n) => existsSync8(join13(dir, n, "SKILL.md"))).sort();
   } catch {
     return [];
   }
-  return names.map((name) => ({ kind: "skill", name, where, state: state(name), anvc, file: tilde(join12(dir, name, "SKILL.md")) }));
+  return names.map((name) => ({ kind: "skill", name, where, state: state(name), anvc, file: tilde(join13(dir, name, "SKILL.md")) }));
 }
 function commands(paths, where, state, anvc) {
   const files = paths.flatMap((p) => {
     try {
-      return p.endsWith(".md") ? existsSync7(p) ? [p] : [] : readdirSync3(p).filter((n) => n.endsWith(".md")).map((n) => join12(p, n));
+      return p.endsWith(".md") ? existsSync8(p) ? [p] : [] : readdirSync3(p).filter((n) => n.endsWith(".md")).map((n) => join13(p, n));
     } catch {
       return [];
     }
@@ -4754,13 +4942,13 @@ function commands(paths, where, state, anvc) {
   return files.map((f) => ({ kind: "command", name: basename3(f, ".md"), where, state, anvc, file: tilde(f) }));
 }
 function claudeConfig() {
-  const legacy = join12(claudeDir(), ".config.json");
-  const file = existsSync7(legacy) ? legacy : join12(process.env.CLAUDE_CONFIG_DIR || homedir6(), ".claude.json");
+  const legacy = join13(claudeDir(), ".config.json");
+  const file = existsSync8(legacy) ? legacy : join13(process.env.CLAUDE_CONFIG_DIR || homedir7(), ".claude.json");
   return { file, data: json(file) };
 }
 function claudeCode(repo, root) {
   const dir = claudeDir();
-  const layers = [join12(dir, "settings.json"), ...repo ? [join12(repo, ".claude/settings.json"), join12(repo, ".claude/settings.local.json")] : []].map(json);
+  const layers = [join13(dir, "settings.json"), ...repo ? [join13(repo, ".claude/settings.json"), join13(repo, ".claude/settings.local.json")] : []].map(json);
   const merged = (key) => Object.assign({}, ...layers.map((l) => obj(l[key])));
   const last = (key) => layers.map((l) => l[key]).filter((v) => v !== undefined).at(-1);
   const config = claudeConfig();
@@ -4779,43 +4967,43 @@ function claudeCode(repo, root) {
   const out = [
     ...servers(config.data.mcpServers, "every project", config.file, userOn),
     ...servers(project.mcpServers, "this project", config.file, userOn),
-    ...repo ? servers(json(join12(repo, ".mcp.json")).mcpServers, "this project", join12(repo, ".mcp.json"), (name) => disabled.has(name) || refused.has(name) ? "off" : approved.has(name) || everyMcpjson ? "on" : "unknown") : [],
-    ...hooks(layers[0].hooks, "every project", join12(dir, "settings.json"), () => hooksOff ? "off" : "on"),
-    ...repo ? ["settings.json", "settings.local.json"].flatMap((name, i) => hooks(layers[i + 1].hooks, "this project", join12(repo, ".claude", name), () => hooksOff ? "off" : "on")) : [],
-    ...skills(join12(dir, "skills"), "every project", (n) => skillState(n)),
-    ...repo ? skills(join12(repo, ".claude/skills"), "this project", (n) => skillState(n)) : []
+    ...repo ? servers(json(join13(repo, ".mcp.json")).mcpServers, "this project", join13(repo, ".mcp.json"), (name) => disabled.has(name) || refused.has(name) ? "off" : approved.has(name) || everyMcpjson ? "on" : "unknown") : [],
+    ...hooks(layers[0].hooks, "every project", join13(dir, "settings.json"), () => hooksOff ? "off" : "on"),
+    ...repo ? ["settings.json", "settings.local.json"].flatMap((name, i) => hooks(layers[i + 1].hooks, "this project", join13(repo, ".claude", name), () => hooksOff ? "off" : "on")) : [],
+    ...skills(join13(dir, "skills"), "every project", (n) => skillState(n)),
+    ...repo ? skills(join13(repo, ".claude/skills"), "this project", (n) => skillState(n)) : []
   ];
   const enabled = merged("enabledPlugins");
-  const installed = obj(json(join12(dir, "plugins/installed_plugins.json")).plugins);
+  const installed = obj(json(join13(dir, "plugins/installed_plugins.json")).plugins);
   for (const [key, installs] of Object.entries(installed)) {
     const here = (Array.isArray(installs) ? installs : []).map(obj).filter((i) => i.scope === "user" || thisProject(i.projectPath));
     const install = here.at(-1);
     if (!install || typeof install.installPath !== "string")
       continue;
     const path = install.installPath;
-    const manifest = json(join12(path, ".claude-plugin/plugin.json"));
+    const manifest = json(join13(path, ".claude-plugin/plugin.json"));
     const name = typeof manifest.name === "string" ? manifest.name : key.split("@")[0];
     const state = enabled[key] === true ? "on" : enabled[key] === false ? "off" : "unknown";
     const anvc = name === "anvc";
-    out.push({ kind: "plugin", name, where: here.some((i) => i.scope === "user") ? "every project" : "this project", state, anvc, file: tilde(join12(path, ".claude-plugin/plugin.json")) });
+    out.push({ kind: "plugin", name, where: here.some((i) => i.scope === "user") ? "every project" : "this project", state, anvc, file: tilde(join13(path, ".claude-plugin/plugin.json")) });
     const within = (p) => resolve6(path, p);
-    const mcp = typeof manifest.mcpServers === "string" || Array.isArray(manifest.mcpServers) ? list(manifest.mcpServers).map((f) => [within(f), json(within(f))]) : manifest.mcpServers ? [[join12(path, ".claude-plugin/plugin.json"), { mcpServers: manifest.mcpServers }]] : [[join12(path, ".mcp.json"), json(join12(path, ".mcp.json"))]];
+    const mcp = typeof manifest.mcpServers === "string" || Array.isArray(manifest.mcpServers) ? list(manifest.mcpServers).map((f) => [within(f), json(within(f))]) : manifest.mcpServers ? [[join13(path, ".claude-plugin/plugin.json"), { mcpServers: manifest.mcpServers }]] : [[join13(path, ".mcp.json"), json(join13(path, ".mcp.json"))]];
     for (const [file, data] of mcp)
       out.push(...servers(data.mcpServers ?? data, name, file, (s) => state === "on" && disabled.has(s) ? "off" : state, anvc));
-    const hookFiles = typeof manifest.hooks === "string" || Array.isArray(manifest.hooks) ? list(manifest.hooks).map((f) => [within(f), json(within(f))]) : manifest.hooks ? [[join12(path, ".claude-plugin/plugin.json"), obj(manifest.hooks)]] : [[join12(path, "hooks/hooks.json"), json(join12(path, "hooks/hooks.json"))]];
+    const hookFiles = typeof manifest.hooks === "string" || Array.isArray(manifest.hooks) ? list(manifest.hooks).map((f) => [within(f), json(within(f))]) : manifest.hooks ? [[join13(path, ".claude-plugin/plugin.json"), obj(manifest.hooks)]] : [[join13(path, "hooks/hooks.json"), json(join13(path, "hooks/hooks.json"))]];
     for (const [file, data] of hookFiles)
       out.push(...hooks(data.hooks ?? data, name, file, () => hooksOff ? "off" : state, anvc));
-    for (const folder of [join12(path, "skills"), ...list(manifest.skills).map(within)]) {
+    for (const folder of [join13(path, "skills"), ...list(manifest.skills).map(within)]) {
       out.push(...skills(folder, name, (s) => state === "on" ? skillState(`${name}:${s}`, s) : state, anvc));
     }
-    out.push(...commands([join12(path, "commands"), ...list(manifest.commands).map(within)], name, state, anvc));
+    out.push(...commands([join13(path, "commands"), ...list(manifest.commands).map(within)], name, state, anvc));
   }
   return out;
 }
 var snake = (event) => event.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 function codex(repo) {
   const dir = codexDir();
-  const file = join12(dir, "config.toml");
+  const file = join13(dir, "config.toml");
   let config = {};
   try {
     config = obj(Bun.TOML.parse(readFileSync9(file, "utf8")));
@@ -4829,15 +5017,15 @@ function codex(repo) {
   return [
     ...servers(config.mcp_servers, "every project", file, (_, entry) => entry.enabled === false ? "off" : "on"),
     ...hooks(inline, "every project", file, hookState(file)),
-    ...hooksFile(join12(dir, "hooks.json"), "every project"),
-    ...repo ? hooksFile(join12(repo, ".codex/hooks.json"), "this project") : []
+    ...hooksFile(join13(dir, "hooks.json"), "every project"),
+    ...repo ? hooksFile(join13(repo, ".codex/hooks.json"), "this project") : []
   ];
 }
 function cursor(repo) {
-  const dirs = [[cursorDir(), "every project"], ...repo ? [[join12(repo, ".cursor"), "this project"]] : []];
+  const dirs = [[cursorDir(), "every project"], ...repo ? [[join13(repo, ".cursor"), "this project"]] : []];
   return dirs.flatMap(([dir, where]) => [
-    ...servers(json(join12(dir, "mcp.json")).mcpServers, where, join12(dir, "mcp.json"), () => "unknown"),
-    ...hooks(json(join12(dir, "hooks.json")).hooks, where, join12(dir, "hooks.json"), () => "on")
+    ...servers(json(join13(dir, "mcp.json")).mcpServers, where, join13(dir, "mcp.json"), () => "unknown"),
+    ...hooks(json(join13(dir, "hooks.json")).hooks, where, join13(dir, "hooks.json"), () => "on")
   ]);
 }
 var KIND_ORDER = ["mcp", "plugin", "skill", "command", "hook"];
@@ -5407,98 +5595,8 @@ function statusCommand(repo, positional, argv) {
 // protocol/open.ts
 import { spawn as spawn3 } from "child_process";
 import { randomBytes as randomBytes2, timingSafeEqual } from "crypto";
-import { closeSync as closeSync3, existsSync as existsSync9, mkdirSync as mkdirSync10, openSync as openSync3, readFileSync as readFileSync11 } from "fs";
+import { closeSync as closeSync4, existsSync as existsSync9, mkdirSync as mkdirSync10, openSync as openSync4, readFileSync as readFileSync11 } from "fs";
 import { dirname as dirname7, join as join14 } from "path";
-
-// protocol/desktop.ts
-import { spawn as spawn2 } from "child_process";
-import { chmodSync, copyFileSync, existsSync as existsSync8, mkdirSync as mkdirSync9, mkdtempSync, writeFileSync as writeFileSync7 } from "fs";
-import { homedir as homedir7, tmpdir } from "os";
-import { join as join13 } from "path";
-var RELEASES = "yodering/anvc";
-var which = (name) => Bun.which(name, { PATH: process.env.PATH ?? "" });
-function installerFor(assets, platform = process.platform, arch = process.arch, apt = Boolean(which("apt"))) {
-  const arm = arch === "arm64";
-  const suffix = platform === "darwin" ? `_${arm ? "aarch64" : "x64"}.dmg` : platform === "win32" ? `_${arm ? "arm64" : "x64"}-setup.exe` : platform === "linux" ? apt ? `_${arm ? "arm64" : "amd64"}.deb` : `_${arm ? "aarch64" : "amd64"}.AppImage` : null;
-  return suffix ? assets.find((a) => a.name.endsWith(suffix)) ?? null : null;
-}
-function desktopCommand() {
-  const onPath = which("anvc-desktop");
-  if (onPath)
-    return [onPath];
-  const local = join13(homedir7(), ".local", "bin", "anvc-desktop");
-  if (process.platform === "linux" && existsSync8(local))
-    return [local];
-  if (process.platform === "darwin") {
-    const app = ["/Applications/anvc.app", join13(homedir7(), "Applications", "anvc.app")].find(existsSync8);
-    return app ? ["open", "-n", app, "--args"] : null;
-  }
-  if (process.platform === "win32") {
-    const folders = [process.env.LOCALAPPDATA, process.env.ProgramFiles].filter(Boolean).map((f) => join13(f, "anvc"));
-    const exe = folders.flatMap((f) => ["anvc-desktop.exe", "anvc.exe"].map((n) => join13(f, n))).find(existsSync8);
-    return exe ? [exe] : null;
-  }
-  return null;
-}
-async function latestAssets(repo) {
-  if (which("gh")) {
-    const p = Bun.spawnSync(["gh", "api", `repos/${repo}/releases/latest`], { stdout: "pipe", stderr: "pipe" });
-    if (p.success)
-      return release(JSON.parse(p.stdout.toString()));
-  }
-  const answer = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { accept: "application/vnd.github+json" } });
-  if (answer.status === 404)
-    throw new Error(`No release of ${repo} can be downloaded yet. If one is published, the repository is private: install gh and sign in with gh auth login.`);
-  if (!answer.ok)
-    throw new Error(`Couldn't read ${repo}'s latest release: GitHub answered ${answer.status}.`);
-  return release(await answer.json());
-}
-var release = (body) => ({ tag: body.tag_name, assets: body.assets.map((a) => ({ name: a.name, url: a.url })) });
-async function download(asset, into) {
-  const file = join13(into, asset.name);
-  if (which("gh")) {
-    const p = Bun.spawnSync(["gh", "api", "-H", "accept: application/octet-stream", asset.url.replace("https://api.github.com/", "")], { stdout: "pipe", stderr: "pipe" });
-    if (p.success) {
-      writeFileSync7(file, p.stdout);
-      return file;
-    }
-  }
-  const answer = await fetch(asset.url, { headers: { accept: "application/octet-stream" } });
-  if (!answer.ok)
-    throw new Error(`Couldn't download ${asset.name}: GitHub answered ${answer.status}.`);
-  writeFileSync7(file, Buffer.from(await answer.arrayBuffer()));
-  return file;
-}
-async function installDesktop(repo = RELEASES) {
-  const { tag, assets } = await latestAssets(repo);
-  const asset = installerFor(assets);
-  if (!asset) {
-    return `${repo}'s release ${tag} has no desktop app for ${process.platform} on ${process.arch}. From a clone of ANVC, \`bun run desktop:build\` builds one.`;
-  }
-  const file = await download(asset, mkdtempSync(join13(tmpdir(), "anvc-desktop-")));
-  if (process.platform === "darwin") {
-    spawn2("open", [file], { detached: true, stdio: "ignore" }).unref();
-    return `Opened ${asset.name}. Drag anvc to Applications in the window that opened.`;
-  }
-  if (process.platform === "win32") {
-    spawn2(file, [], { detached: true, stdio: "ignore" }).unref();
-    return `Started the installer, ${asset.name}. Follow it to finish.`;
-  }
-  if (asset.name.endsWith(".deb")) {
-    const command = ["sudo", "apt", "install", "-y", file];
-    if (!process.stdin.isTTY)
-      return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
-    const p = Bun.spawnSync(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
-    return p.success ? `Installed the desktop app from ${asset.name}. It's in your app menu as anvc.` : `apt couldn't install it. To try again: ${command.join(" ")}`;
-  }
-  const bin = join13(homedir7(), ".local", "bin");
-  mkdirSync9(bin, { recursive: true });
-  copyFileSync(file, join13(bin, "anvc-desktop"));
-  chmodSync(join13(bin, "anvc-desktop"), 493);
-  return `Put the desktop app in ${join13(bin, "anvc-desktop")}. An AppImage needs FUSE; if it doesn't start, install libfuse2.`;
-}
-
-// protocol/open.ts
 var CLONE_SERVER = join14(HOME, "server", "inspect.ts");
 var SERVER = existsSync9(CLONE_SERVER) ? CLONE_SERVER : join14(HOME, "dist", "inspect.js");
 var PORTS = "7451-7470";
@@ -5534,7 +5632,7 @@ async function ask(port, top) {
 async function startServer(top, ports) {
   const log = place2(top, "log");
   mkdirSync10(dirname7(log), { recursive: true, mode: 448 });
-  const out = openSync3(log, "w", 384);
+  const out = openSync4(log, "w", 384);
   const child = spawn3(process.execPath, [SERVER, "--repo", top, "--port", ports], {
     cwd: dirname7(SERVER),
     detached: true,
@@ -5542,7 +5640,7 @@ async function startServer(top, ports) {
     windowsHide: true,
     env: { ...process.env, ANVC_UI_TOKEN: uiToken() }
   });
-  closeSync3(out);
+  closeSync4(out);
   child.unref();
   for (let i = 0;i < 100 && child.exitCode === null; i++) {
     const port = /^anvc listening 127\.0\.0\.1:(\d+)$/m.exec(readFileSync11(log, "utf8"))?.[1];
@@ -5600,7 +5698,7 @@ async function openWorkLog(folder, options = {}) {
 }
 
 // protocol/sources.ts
-import { appendFileSync as appendFileSync3, closeSync as closeSync4, fstatSync, mkdirSync as mkdirSync11, openSync as openSync4, readSync as readSync3 } from "fs";
+import { appendFileSync as appendFileSync3, mkdirSync as mkdirSync11 } from "fs";
 import { createHash as createHash5, randomBytes as randomBytes3 } from "crypto";
 import { dirname as dirname8, join as join15, resolve as resolve7 } from "path";
 var MAX_SOURCE = 64 * 1024;
@@ -5626,18 +5724,8 @@ function documentText(path, pages) {
     const p = Bun.spawnSync(["pdftotext", "-q", ...which, path, "-"], { stdout: "pipe", stderr: "ignore", timeout: 5000, windowsHide: true });
     return p.exitCode === 0 ? str(p.stdout.toString()) : null;
   }
-  try {
-    const fd = openSync4(path, "r");
-    try {
-      const buf = Buffer.alloc(Math.min(MAX_READ, fstatSync(fd).size));
-      const text = buf.subarray(0, readSync3(fd, buf, 0, buf.length, 0)).toString("utf8");
-      return text.includes("\x00") ? null : str(text);
-    } finally {
-      closeSync4(fd);
-    }
-  } catch {
-    return null;
-  }
+  const text = readHead(path, MAX_READ);
+  return text === null || text.includes("\x00") ? null : str(text);
 }
 function titleOf(text) {
   const m = /^#{1,2}[ \t]+(.+)$/m.exec(text) ?? /<title[^>]*>([^<]+)<\/title>/i.exec(text) ?? /\\title\{([^}]+)\}/.exec(text);
@@ -5965,18 +6053,18 @@ var TOOLS = [
   },
   {
     name: "anvc_result",
-    description: "Record a result: a value someone will rely on, such as a number for a paper, a benchmark or a count. " + "Months later nobody remembers which run made a number or whether it can still be trusted, so record it when you produce or report it: " + "the value as written, the file and key it was read from, the command and settings, the files it depends on, and why. " + "ANVC checks the value is really at the source and fingerprints the files, so a later reader sees whether anything changed. " + "To change a result's status later, pass `of` with its id and the new status. Locking is the person's decision: asking for locked records a proposal.",
+    description: "Record a result: a value someone will rely on, such as a number for a paper, a benchmark or a count. " + "Months later nobody remembers which run made a number or whether it can still be trusted, so record it when you produce or report it: " + "the value as written, the file and key it was read from, the command and settings, the files it depends on, and why. " + "ANVC checks the value is really at the source and fingerprints the files, so a later reader sees whether anything changed. " + "To record several, pass them as `results`, one call for all of them; a field given beside the list, such as a shared command or depends, applies to each. " + "To change a result's status later, pass `of` with its id and the new status. Locking is the person's decision: asking for locked records a proposal.",
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string", description: 'What the value is, as someone would say it: "D accuracy", "Table 2 F1".' },
         value: { type: "string", description: 'The value as it is written where it is used: "88.1%", "0.8812", "1.2 s".' },
         status: { type: "string", enum: [...RESULT_STATUSES], description: "draft: still being worked on. current: the good one for now. locked: final, don't re-run (the person decides; you can propose it). superseded: replaced. invalid: wrong. Defaults to current." },
-        of: { type: "string", description: "Only to change an existing result's status: its id. Then give status and why, nothing else." },
+        of: { type: "string", description: "Only to change an existing result's status: its id. Then give status and why, nothing else. Setting it current again after checking it fingerprints its files as they are now, which clears a flag that something changed." },
         part: { type: "string", description: `The part of the project it belongs to, so only that part's changes make it stale: "retrieval", "component D".` },
         source: {
           type: "object",
-          description: 'The file it was read from, repository-relative, and where in it: a JSON path ("test.acc"), a CSV "row/column", or the label on a log line.',
+          description: 'The file it was read from, repository-relative, and where in it: a JSON path, with list items by number ("test.acc", "runs.2.f1"); a CSV "row/column", the row named by its first cell, or by columns when the first cell repeats ("benchmark=aftraj,horizon=3/auc"); or the label on a log line. JSON with NaN in it, as Python writes it, reads fine.',
           properties: { path: { type: "string" }, key: { type: "string" } },
           required: ["path"]
         },
@@ -5987,7 +6075,8 @@ var TOOLS = [
         replaces: { type: "string", description: "The id of an earlier result this one replaces." },
         used_in: { type: "array", items: { type: "string" }, description: 'Where it is used: "paper.tex Table 2".' },
         why: { type: "string", description: "What it is for and what changed from the last version. For a status change, why." },
-        after_the_fact: { type: "boolean", description: "True when you are recording a result you didn't see being made." }
+        after_the_fact: { type: "boolean", description: "True when you are recording a result you didn't see being made." },
+        results: { type: "array", items: { type: "object" }, description: "Several results, each with the fields above." }
       }
     }
   },
@@ -6380,27 +6469,54 @@ ${raw.map((r) => `  ${r.ts.slice(0, 16).replace("T", " ")} ${r.agent}${r.ok === 
         const view = listResults(repo).find((r) => r.id === args.of);
         return view.proposed ? `Proposed marking ${view.name} ${status}. It is ${view.status} until the person decides: anvc result ${status === "locked" ? "lock" : status} ${view.id}` : `${view.name} is now ${view.status}.`;
       }
-      if (typeof args.name !== "string" || typeof args.value !== "string")
-        return "A result needs a name and a value.";
       const strings = (x) => Array.isArray(x) ? x.filter((v) => typeof v === "string") : undefined;
-      const source = args.source && typeof args.source === "object" ? args.source : undefined;
-      const done = recordResult(repo, {
-        name: args.name,
-        value: args.value,
-        status,
-        part: typeof args.part === "string" ? args.part : undefined,
-        source: source?.path ? { path: repoPath(source.path), ...source.key ? { key: source.key } : {} } : undefined,
-        command: typeof args.command === "string" ? args.command : undefined,
-        settings: args.settings && typeof args.settings === "object" ? Object.fromEntries(Object.entries(args.settings).map(([k, v]) => [k, String(v)])) : undefined,
-        depends: strings(args.depends)?.map(repoPath),
-        derived_from: strings(args.derived_from),
-        replaces: typeof args.replaces === "string" ? args.replaces : undefined,
-        used_in: strings(args.used_in),
-        why: typeof args.why === "string" ? args.why : undefined,
-        after_the_fact: args.after_the_fact === true
-      }, actor);
-      logActivity({ kind: "recorded", repo: activityRepo, session: runId(), via: "anvc_result", outcome: "result", records: [done.id], titles: [`${args.name} = ${args.value}`] });
-      return [`Recorded result ${args.name} = ${args.value}`, `  id: ${done.id}`, ...done.notes.map((n) => `  ${n}`)].join(`
+      const save = (r) => {
+        if (typeof r.name !== "string" || typeof r.value !== "string")
+          throw new Error("A result needs a name and a value.");
+        const source = r.source && typeof r.source === "object" ? r.source : undefined;
+        const done = recordResult(repo, {
+          name: r.name,
+          value: r.value,
+          status: typeof r.status === "string" ? r.status : undefined,
+          part: typeof r.part === "string" ? r.part : undefined,
+          source: source?.path ? { path: repoPath(source.path), ...source.key ? { key: source.key } : {} } : undefined,
+          command: typeof r.command === "string" ? r.command : undefined,
+          settings: r.settings && typeof r.settings === "object" ? Object.fromEntries(Object.entries(r.settings).map(([k, v]) => [k, String(v)])) : undefined,
+          depends: strings(r.depends)?.map(repoPath),
+          derived_from: strings(r.derived_from),
+          replaces: typeof r.replaces === "string" ? r.replaces : undefined,
+          used_in: strings(r.used_in),
+          why: typeof r.why === "string" ? r.why : undefined,
+          after_the_fact: r.after_the_fact === true
+        }, actor);
+        logActivity({ kind: "recorded", repo: activityRepo, session: runId(), via: "anvc_result", outcome: "result", records: [done.id], titles: [`${r.name} = ${r.value}`] });
+        return done;
+      };
+      if (!Array.isArray(args.results)) {
+        if (typeof args.name !== "string" || typeof args.value !== "string")
+          return "A result needs a name and a value.";
+        const done = save(args);
+        return [`Recorded result ${args.name} = ${args.value}`, `  id: ${done.id}`, ...done.notes.map((n) => `  ${n}`)].join(`
+`);
+      }
+      const { results, ...shared } = args;
+      let recorded = 0, matched = 0;
+      const problems = [];
+      for (const item of results) {
+        const r = { ...shared, ...item && typeof item === "object" ? item : {} };
+        try {
+          const done = save(r);
+          recorded++;
+          if (done.notes.some((n) => n.startsWith("Checked: ")))
+            matched++;
+          const needs = done.notes.filter((n) => !/^(Checked: |Command taken from the log|Depends on, from)/.test(n));
+          if (needs.length)
+            problems.push(`- ${r.name} (${done.id}): ${needs.join(" ")}`);
+        } catch (error) {
+          problems.push(`- ${String(r.name ?? "a result")}: not recorded. ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      return [`Recorded ${recorded} of ${results.length} results; ${matched} match their files.`, ...problems].join(`
 `);
     }
     case "anvc_results": {

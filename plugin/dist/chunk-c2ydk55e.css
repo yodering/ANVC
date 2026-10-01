@@ -852,7 +852,7 @@ pre {
   display: flex;
   color: var(--ink);
   letter-spacing: -.5px;
-  align-items:  center;
+  align-items: baseline;
   gap: 8px;
   padding: 0 13px 24px;
   font-size: 22px;
@@ -860,9 +860,9 @@ pre {
 }
 
 .brand-symbol {
-  display: grid;
+  display: flex;
   color: var(--accent);
-  place-items:  center;
+  transform: translateY(calc(8.5px - .5ex));
 }
 
 .nav-item {

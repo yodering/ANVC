@@ -30,8 +30,9 @@ import { addInstructions, INSTRUCTION_LINES, instructionsFile, instructionsOn, r
 import { brief, briefText } from "./brief";
 import { splitLine, whyLine } from "./blame";
 import { checkPrivateRemote, privateRemote, sync } from "./sync";
-import { checkForUpdate, update } from "./version";
-import { allActivity, readActivity, repoRoot } from "./activity";
+import { catchUp } from "./catchup";
+import { checkForUpdate, codexDir, cursorDir, update, updateLine } from "./version";
+import { allActivity, plural, readActivity, repoRoot } from "./activity";
 import { folders, setFolder } from "./folders";
 import { isLocalOnly, LOCAL_ONLY_REFUSAL, setLocalOnly } from "./localonly";
 import { checkResult, DATA_MODES, dataMode, describe, listResults, recordStatus, setDataMode, whence, type DataMode } from "./results";
@@ -416,7 +417,7 @@ switch (command) {
     const result = backfill(repo, { root, since, scrub });
     if (!result.events.length) {
       console.log(`No Claude Code, Codex or Cursor sessions found for ${repo}.`);
-      console.log(`Looked in ${transcriptDir(repo, root)}, ~/.codex/sessions and ~/.cursor/projects`);
+      console.log(`Looked in ${transcriptDir(repo, root)}, ${join(codexDir(), "sessions")} and ${join(cursorDir(), "projects")}`);
       break;
     }
     const commands = result.events.filter((e) => e.tool === "Bash").length;
@@ -440,6 +441,21 @@ switch (command) {
       console.error(`${written.failed.length} record(s) could not be written:`);
       for (const f of written.failed) console.error(`  ${f}`);
       process.exitCode = 1;
+    }
+    break;
+  }
+
+  case "catch-up": {
+    const root = repoRoot(repo) ?? repo;
+    const done = catchUp(root);
+    console.log(done.sessions
+      ? `${plural(done.sessions, "past session")}: ${plural(done.written, "private record")} written${done.skipped ? `, ${done.skipped} already here` : ""}, ${plural(done.kept, "session")} copied.`
+      : "No earlier Claude Code, Codex or Cursor sessions found for this repository.");
+    for (const f of done.failed) console.error(`  couldn't write: ${f}`);
+    if (done.failed.length) process.exitCode = 1;
+    if (done.files.length) {
+      console.log(`\nThese files hold numbers:\n${done.files.map((f) => `  ${f}`).join("\n")}`);
+      console.log(`\nTo keep where the ones you rely on came from, tell your agent: "record the results in these files with anvc_result".`);
     }
     break;
   }
@@ -809,7 +825,7 @@ switch (command) {
   case "update": {
     if (has("check")) {
       const s = checkForUpdate();
-      console.log(s.error ? `Couldn't check: ${s.error}.` : s.behind ? `${s.behind} update${s.behind === 1 ? "" : "s"} ready:\n${s.changes.map((c) => `  ${c}`).join("\n")}` : "anvc is up to date.");
+      console.log(s.error ? `Couldn't check: ${s.error}.` : s.behind ? `${s.behind} update${s.behind === 1 ? "" : "s"} ready:\n${s.changes.map((c) => `  ${c}`).join("\n")}` : updateLine(s) ?? "anvc is up to date.");
       break;
     }
     const result = update();
@@ -869,7 +885,7 @@ switch (command) {
   anvc on | off                            turn ANVC on or off in this repository
   anvc local [on|off]                      keep everything ANVC saves here on this computer (--everywhere for every project)
   anvc assist [auto|start|ask]             how much ANVC tells your agent on its own (--everywhere for every project)
-  anvc data [off|results]                  keep track of the results a project relies on (--everywhere for every project)
+  anvc data [off|results]                  keep track of the results a project relies on: on unless turned off (--everywhere for every project)
   anvc results [--status S] [--part P]     results, with their status and whether what they depend on changed
   anvc whence <number|name>                where a number came from
   anvc check <file>                        where each number in a document came from
@@ -919,6 +935,7 @@ switch (command) {
   anvc unshare <id> [...] | --captured     make records private
   anvc update [--check]                    bring this copy of anvc and its hooks up to date
   anvc sync [--remote NAME]                private history to and from your own remote
+  anvc catch-up                            bring in what happened here before anvc was on
   anvc backfill [--write]                  import Claude Code, Codex and Cursor history as private records
   anvc sessions [--keep]                   private copies of this repository's sessions`);
 }

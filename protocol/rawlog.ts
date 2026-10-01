@@ -7,7 +7,7 @@
  * written before the split stay where they are and are still read; each row
  * carries its repository, so they are filtered rather than migrated.
  */
-import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { closeSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
@@ -99,6 +99,17 @@ export function realInside(repo: string, path: string): string | null {
   const root = samePath(repo);
   const real = resolveExisting(resolve(repo, path));
   return below(root, real) === null ? null : real;
+}
+
+/** The first `max` bytes of a file as text, or null when it can't be read. */
+export function readHead(path: string, max: number): string | null {
+  try {
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.alloc(Math.min(max, fstatSync(fd).size));
+      return buf.subarray(0, readSync(fd, buf, 0, buf.length, 0)).toString("utf8");
+    } finally { closeSync(fd); }
+  } catch { return null; }
 }
 
 /** Resolves the deepest folder of a path that exists, for a file since deleted or never written. */

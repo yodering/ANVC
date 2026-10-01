@@ -36,7 +36,7 @@ function literal(token: string | undefined): string | null {
 // Claude Code runs its shell commands in Git Bash on Windows, where a
 // backslash at the end of a word escapes what follows (build\ output) or the
 // line break, so only one with more of the word after it separates folders.
-// ponytail: words are still split at an escaped space there, so in
+// Words are still split at an escaped space there, so in
 // notes\ 2024.md the 2024.md counts as a read; honour \ escapes for Git Bash
 // if records from Windows show it.
 const SEPARATOR = process.platform === "win32" ? /\/|\\(?!$)/ : /\//;

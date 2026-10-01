@@ -114,3 +114,12 @@ test("an agent's search through the MCP server reaches the activity log, with id
   expect(rows[0]!.records).toEqual([record.id]);
   expect(rows[0]!.titles?.[0]).toContain("Cache the ref index");
 });
+
+test("a turn that recorded many results counts them in the receipt instead of naming each", () => {
+  const results = Array.from({ length: 40 }, (_, i) => row({ kind: "recorded", outcome: "result", records: [`r${i}`], titles: [`Result ${i} = 0.${i}`] }));
+  const text = receipt([...results, row({ kind: "recorded", outcome: "kept", tier: "shared" }), row({ kind: "recorded", outcome: "abandoned", tier: "shared" })])!;
+  expect(text).toContain("recorded 40 results");
+  expect(text).toContain("recorded 2 attempts (1 kept, 1 abandoned)");
+  expect(text).not.toContain("Result 7");
+  expect(receipt([results[0]!])).toContain("recorded a result: Result 0 = 0.0");
+});

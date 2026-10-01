@@ -115,8 +115,9 @@ Run a choice's \`set\` command, or \`setEverywhere\` if the user wants it for ev
 
 When the settings are done, run the command again without \`--json\`, and show the user what is set now and how to change each.
 
-Then offer three more things, and ask before each one:
+Then offer these, and ask before each one:
 
+- What happened here before ANVC was on. If the project has earlier agent sessions or files that hold numbers, offer to run \`bun "\${CLAUDE_PLUGIN_ROOT}/dist/cli.js" catch-up\`, which imports the sessions as private records and lists those files. Then offer to record the numbers the user relies on from them with \`anvc_result\`, several to a call, and from a subagent if you can start one, so this conversation stays short.
 - Goals. Read the README, the docs and the code, and draft the project's goals, each with its sub-goals. Write only goals those files support; don't invent any. Show the user the list first. Add the ones they agree to with \`anvc_goal\`, a sub-goal with \`parent\` set to its goal's id. A goal is \`todo\` unless the code shows it done or in progress.
 - Writing rules. Look for rules the project already has for its text: headings in AGENTS.md or CLAUDE.md, a CONTRIBUTING file, a style guide. Offer one rule set for each kind of text they cover, such as commit messages or the README. Add the ones the user agrees to with \`anvc_rule\`, with \`source\` set to the file and heading, so the rules stay where they are. Don't write new rules. If the project has none, say so.
 - The desktop app, which opens the work log in its own window. Offer it only if \`bun "\${CLAUDE_PLUGIN_ROOT}/dist/cli.js" desktop\` says it isn't installed. To install it, run \`bun "\${CLAUDE_PLUGIN_ROOT}/dist/cli.js" desktop install\`. If that prints a command to run with sudo, give it to the user to run in their own terminal, since sudo asks there for their password.

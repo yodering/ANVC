@@ -141,7 +141,7 @@ export async function openWorkLog(folder: string, options: { browser?: boolean; 
   let port = kept?.port ?? 0;
   const reused = answer !== null;
   if (!answer) {
-    // ponytail: two opens of one project at the same moment can start two servers; the record keeps the last.
+    // Two opens of one project at the same moment can start two servers; the record keeps the last.
     port = await startServer(top, options.ports ?? PORTS);
     answer = await ask(port, top);
     if (!answer) throw new Error(`The work log started on port ${port} but doesn't answer for ${top}.`);

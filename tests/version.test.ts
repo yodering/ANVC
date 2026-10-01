@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { checkForUpdate, hooksBehind, HOOKS_REVISION, installs, noteInstall, pullUpdate, readUpdate, updateLine, updatePlugin } from "../protocol/version";
+import { checkForUpdate, hooksBehind, HOOKS_REVISION, installs, newestTag, noteInstall, pullUpdate, readUpdate, updateLine, updatePlugin, version } from "../protocol/version";
 import { git, setEnv, tmp } from "./helpers";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -77,7 +77,7 @@ test.skipIf(process.platform === "win32")("the daily check starts without a shel
   const home = join(dir, 'anvc"$(touch ran)"');
   mkdirSync(join(home, "protocol"), { recursive: true });
   mkdirSync(join(home, ".git"));
-  for (const file of ["version.ts", "git.ts", "rawlog.ts"]) copyFileSync(join(ROOT, "protocol", file), join(home, "protocol", file));
+  for (const file of ["version.ts", "git.ts", "rawlog.ts", "desktop.ts"]) copyFileSync(join(ROOT, "protocol", file), join(home, "protocol", file));
   copyFileSync(join(ROOT, "package.json"), join(home, "package.json"));
   const env: Record<string, string | undefined> = { ...process.env, ANVC_STATE_HOME: join(dir, "state") };
   delete env.ANVC_NO_UPDATE_NOTICE;
@@ -104,4 +104,15 @@ esac
   expect(updatePlugin()).toEqual({ from: "0.1.0", to: "0.2.0" });
   expect(readFileSync(calls, "utf8").trim().split("\n"))
     .toEqual(["plugin list --json", "plugin marketplace update anvc", "plugin update anvc@anvc", "plugin list --json"]);
+});
+
+test("the plugin is told when a newer release is out, and not when it's on it", () => {
+  // What git ls-remote --tags --refs prints: hashes, then the tags, in any order.
+  const listed = ["v0.3.3", "v0.4.10", "v0.4.4", "v0.4.9", "latest"].map((t, i) => `${String(i).repeat(40)}\trefs/tags/${t}`).join("\n");
+  expect(newestTag(listed)).toBe("0.4.10");
+  expect(newestTag("")).toBeNull();
+  const state = (latest: string) => ({ checked: new Date().toISOString(), behind: 0, changes: [], latest });
+  expect(updateLine(state("99.0.0"))).toBe(`ANVC 99.0.0 is out, and this is ${version()}. To update, run in a terminal: claude plugin marketplace update anvc && claude plugin update anvc@anvc, then start a new session.`);
+  expect(updateLine(state(version()))).toBeNull();
+  expect(updateLine(state("0.0.1"))).toBeNull();
 });

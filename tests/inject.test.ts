@@ -331,9 +331,10 @@ test("session start says what worked, not only what failed", async () => {
   expect(context).toContain("Read every record in one git process");
 }, 60_000);
 
-test("an empty log says nothing", async () => {
+test("an empty log says only that ANVC is on", async () => {
   const { repo, state } = fixture();
-  expect(inject("SessionStart", { session_id: "s1", cwd: repo }, state).context).toBeNull();
+  expect(inject("SessionStart", { session_id: "s1", cwd: repo }, state).context)
+    .toBe("anvc is on in this repository, and nothing is recorded yet. When you finish or give up on an attempt, record it with the anvc_checkpoint tool.");
 }, 60_000);
 
 test("it never breaks the session", async () => {

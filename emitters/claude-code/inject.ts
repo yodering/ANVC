@@ -63,6 +63,7 @@ import { codexExit, contextOutput, hookInput, hookRepo, noteSession, outputOf, s
 import { handoff } from "../../protocol/handoff";
 import { changedLines } from "../../protocol/drift";
 import { checkResult, dataMode, describe, listResults, sameNumber, type ResultView } from "../../protocol/results";
+import { catchUpOffer, dataFiles, dataLine, holdsNumbers, isDataPath, RECORD_RESULT, writtenData } from "../../protocol/catchup";
 import { cachedCheck, runnable, verifyCached } from "../../protocol/recheck";
 import { autosave } from "../../protocol/autosave";
 import { readAssist, type Moment } from "../../protocol/assist";
@@ -472,9 +473,11 @@ try {
       // has not been told what anvc can answer does not ask it. Measured on the
       // research: people "can't even get my agents to properly read the
       // memories they have saved locally".
+      const records = withIndex((db) => summary(db).records);
       const reminder = withIndex((db) => {
-        const s = summary(db);
-        if (!s.records) return null;
+        // Said in a project with nothing recorded too: the agent there hasn't
+        // been told ANVC is on, and records nothing for want of being asked.
+        if (!records) return "anvc is on in this repository, and nothing is recorded yet. When you finish or give up on an attempt, record it with the anvc_checkpoint tool.";
         const open = openDeadEnds(db, 999).length;
         // Retirement is named only when the person allowed it, and in the
         // words of their setting, so the agent knows whether it acts or asks.
@@ -485,7 +488,7 @@ try {
             ? " If a record you are shown is no longer true, propose retiring it with anvc_retire and your evidence; the user approves."
             : "";
         const waiting = retirements(db).pending.length;
-        return `anvc: ${s.records} records in this repository${open ? `, ${open} dead end${open === 1 ? "" : "s"} still open` : ""}. `
+        return `anvc: ${records} records in this repository${open ? `, ${open} dead end${open === 1 ? "" : "s"} still open` : ""}. `
           + `Each was true when it was written; check before relying on one. ${QUOTED} Before retrying something, search with the anvc_search tool. When you finish or give up on an attempt, record it with the anvc_checkpoint tool.`
           + retire
           + (waiting ? ` ${waiting} proposed retirement${waiting === 1 ? " is" : "s are"} waiting for the user.` : "");
@@ -518,14 +521,19 @@ try {
             ? `anvc: ${all.length} result${all.length === 1 ? "" : "s"} recorded here${locked ? `, ${locked} locked` : ""}. Before re-running an experiment or trusting a number you can't place, look it up with anvc_results.`
             : null,
           // Said where results are in use, not to every project: a code-only
-          // repository that never chose this has no numbers to record.
-          all.length || data.from !== "default"
-            ? "When you produce a number someone will rely on, record it with anvc_result: the value, the file it came from, what it depends on and why."
+          // repository that never chose this has no numbers to record. Files
+          // that already hold numbers count, so a research project turned on
+          // with the defaults is told too.
+          all.length || data.from !== "default" || dataFiles(root, 1).length
+            ? `When you produce a number someone will rely on, ${RECORD_RESULT}.`
             : null,
           resultsBlock("Results that need a look:", attention, all),
         ].filter(Boolean).join("\n");
       }
       for (const part of [reminder, untravelled, gap, left, ...parts, results]) say(part);
+      // Once per project, the first time ANVC runs where work happened before it.
+      const offer = catchUpOffer(root, session, records);
+      if (offer) say(offer.text, [], offer.said);
       seen.add("@session");
     }
   } else if (event === "UserPromptSubmit") {
@@ -624,6 +632,19 @@ try {
       // this repository. A miss is cheap; a permanent silence is not.
       say(block(`Work on ${path} that was abandoned:`, hits), [path]);
     }
+  }
+
+  // Numbers in a file the agent is about to write, or that a command it ran
+  // wrote: the moment to record the ones that are results, said once a file.
+  if (assist.moments.results && event !== "SessionStart" && event !== "PreCompact" && event !== "PostCompact" && dataMode(root).mode !== "off") {
+    const fresh = new Set(writtenData(root, session, (p) => seen.has(`@data:${p}`)));
+    const target = event === "PreToolUse" && /^(Write|Edit|MultiEdit)$/.test(tool) ? targetPath(payload, repo) : null;
+    if (target && isDataPath(target) && !seen.has(`@data:${target}`)) {
+      const input = (payload.tool_input ?? {}) as { content?: unknown; new_string?: unknown; edits?: Array<{ new_string?: unknown }> };
+      const text = [input.content, input.new_string, ...(input.edits ?? []).map((e) => e.new_string)].filter((t) => typeof t === "string").join("\n");
+      if (holdsNumbers(text)) fresh.add(target);
+    }
+    if (fresh.size) say(dataLine([...fresh]), [...fresh].map((p) => `@data:${p}`));
   }
 
   // When a session starts, and with a prompt after compaction, since Codex

@@ -177,6 +177,17 @@ function folderPrint(root: string): Fingerprint {
 
 // ------------------------------------------------------------------- values
 
+/**
+ * JSON, and JSON as Python writes it: json.dump puts NaN and Infinity where a
+ * float was one, which JSON doesn't allow, and a results file holding one
+ * read as holding nothing, so every key in it was "couldn't find". They read
+ * as null here.
+ */
+function parseJson(text: string): unknown {
+  try { return JSON.parse(text); }
+  catch { return JSON.parse(text.replace(/"(?:\\.|[^"\\])*"|-?\bInfinity\b|\bNaN\b/g, (m) => m[0] === '"' ? m : "null")); }
+}
+
 /** A file's text when it is no larger than `max` bytes, else null. */
 function readSmall(path: string, max: number): string | null {
   try { return statSync(path).size > max ? null : readFileSync(path, "utf8"); } catch { return null; }
@@ -216,18 +227,34 @@ function table(path: string, text: string): string[][] {
 }
 
 /**
+ * The data rows a CSV row key names: "name" is the rows whose first cell is
+ * that; "benchmark=aftraj,horizon=3" the rows where each named column holds
+ * its value.
+ */
+function rowsNamed(rows: string[][], name: string): string[][] {
+  const header = rows[0] ?? [];
+  const pairs = name.includes("=") ? name.split(",").map((p) => p.split("=")).map(([col, ...v]) => [header.indexOf(col!.trim()), v.join("=").trim()] as const) : null;
+  // A first cell can hold "=" too, as a sweep's lr=0.1 does.
+  if (!pairs || pairs.some(([col]) => col < 0)) return rows.slice(1).filter((r) => r[0] === name);
+  return rows.slice(1).filter((r) => pairs.every(([col, v]) => r[col] === v));
+}
+
+/**
  * The value at `key` in a file, as text, or null.
  *
  * JSON: a dotted path, "test.acc" or "runs.2.f1". CSV and TSV: "row/column",
- * the row found by its first cell. Anything else: the first number on the
- * first line containing the key.
+ * the row found by its first cell, or by several columns, as in
+ * "benchmark=aftraj,horizon=3/auc". A key that fits more than one row reads
+ * as nothing: the first of several rows sharing a first cell gave a number
+ * from another row. Anything else: the first number on the first line
+ * containing the key.
  */
 export function readValue(path: string, key: string): string | null {
   const text = readSmall(path, 16 * 1024 * 1024);
   if (text === null) return null;
   if (/\.json$/i.test(path)) {
     try {
-      let at: unknown = JSON.parse(text);
+      let at: unknown = parseJson(text);
       for (const part of key.split(".")) {
         if (at === null || typeof at !== "object") return null;
         at = (at as Record<string, unknown>)[part];
@@ -241,8 +268,8 @@ export function readValue(path: string, key: string): string | null {
     // named val/acc. values() writes such keys, so every split is tried.
     for (let at = key.indexOf("/"); at >= 0; at = key.indexOf("/", at + 1)) {
       const col = rows[0]?.indexOf(key.slice(at + 1)) ?? -1;
-      const hit = col >= 0 ? rows.find((r) => r[0] === key.slice(0, at)) : undefined;
-      if (hit?.[col] !== undefined) return hit[col]!;
+      const hits = col >= 0 ? rowsNamed(rows, key.slice(0, at)) : [];
+      if (hits.length === 1 && hits[0]![col] !== undefined) return hits[0]![col]!;
     }
     return null;
   }
@@ -421,11 +448,18 @@ export function recordResult(repo: string, given: ResultInput, actor: Actor): { 
 export function recordStatus(repo: string, of: string, status: ResultStatus, why: string, actor: Actor): { id: string; ref: string } {
   const target = listResults(repo).find((r) => r.id === of);
   if (!target) throw new Error(`no result ${of}`);
+  // Confirming a result is checking it again, so what it names is
+  // fingerprinted as it is now. A status change kept the first fingerprints,
+  // and a result stayed flagged however often it was confirmed.
+  const now = (path: string) => fingerprintInside(repo, path);
+  const fresh = status === "current" || status === "locked";
+  const source = fresh && target.source ? { ...target.source, ...(now(target.source.path) ?? {}) } : undefined;
+  const depends = fresh && target.depends.length ? target.depends.map((d) => ({ path: d.path, ...(now(d.path) ?? {}) })) : undefined;
   const record: CheckpointRecord = {
     anvc: 0,
     id: ulid(),
     anchor: headAnchor(repo),
-    result: { name: target.name, of, status },
+    result: { name: target.name, of, status, ...(source ? { source } : {}), ...(depends ? { depends } : {}) },
     session: sessionOf(actor),
     intent: { goal: `${status[0]!.toUpperCase()}${status.slice(1)}: ${target.name}`.slice(0, 200), ...(why ? { why: why.slice(0, 2000) } : {}) },
     outcome: { status: "kept" },
@@ -505,6 +539,8 @@ export function listResults(repo: string): ResultView[] {
     const proposal = !person && (status === "locked" || view.status === "locked");
     view.history.push({ ts: record.ts, status, by: person ? "person" : "agent", why, proposed: proposal });
     if (proposal) { view.proposed = { status, why: why ?? "", ts: record.ts }; continue; }
+    if (record.result!.source) view.source = record.result!.source;
+    if (record.result!.depends) view.depends = record.result!.depends;
     view.status = status;
     view.by = person ? "person" : "agent";
     if (why) view.why = why;
@@ -532,11 +568,16 @@ export interface ResultCheck {
   stale: boolean;
 }
 
-/** A path a record names, checked again now. One that links out of the repository isn't read, and counts as missing. */
+/** A path's fingerprint, or null when it's missing or links out of the repository, which is never read. */
+const fingerprintInside = (repo: string, path: string): Fingerprint | null => {
+  const real = realInside(repo, path);
+  return real ? fingerprint(real) : null;
+};
+
+/** A path a record names, checked again now. One that links out of the repository counts as missing. */
 const stateOf = (repo: string, path: string, hash?: string): FileState => {
   if (!hash) return "unknown";
-  const real = realInside(repo, path);
-  const now = real ? fingerprint(real) : null;
+  const now = fingerprintInside(repo, path);
   return !now ? "missing" : now.hash === hash ? "same" : "changed";
 };
 
@@ -552,9 +593,15 @@ export function checkResult(repo: string, view: ResultView, all?: ResultView[]):
     const from = everyone.find((r) => r.id === id);
     return { id, name: from?.name ?? id, status: from?.status ?? "missing" as const };
   });
-  const stale = Boolean(source && (source.state === "changed" || source.state === "missing"))
+  // A source read by its key is stale when the value there is, not when the
+  // file is: adding a key to a results file flagged every result read from it.
+  const sourceStale = Boolean(source && (source.state === "missing"
+    || (source.state === "changed" && (!view.source?.key || source.now === null || !sameNumber(view.value, source.now)))));
+  // A superseded or invalid result is history, and isn't flagged for what changed after it.
+  const live = view.status !== "superseded" && view.status !== "invalid";
+  const stale = live && (sourceStale
     || depends.some((d) => d.state === "changed" || d.state === "missing")
-    || derived.some((d) => d.status === "invalid" || d.status === "superseded" || d.status === "missing");
+    || derived.some((d) => d.status === "invalid" || d.status === "superseded" || d.status === "missing"));
   return { source, depends, derived, stale };
 }
 
@@ -585,7 +632,7 @@ export function describe(view: ResultView, check: ResultCheck, all: ResultView[]
   if (view.source) {
     const where = `${view.source.path}${view.source.key ? ` → ${view.source.key}` : ""}`;
     const state = check.source?.state === "same" ? "unchanged since"
-      : check.source?.state === "changed" ? `changed since${check.source.now !== null && !sameNumber(view.value, check.source.now) ? `, now holds ${check.source.now}` : ""}`
+      : check.source?.state === "changed" ? `changed since${check.source.now === null ? "" : sameNumber(view.value, check.source.now) ? `, still holds ${check.source.now}` : `, now holds ${check.source.now}`}`
         : check.source?.state === "missing" ? "not on this computer" : "not fingerprinted";
     lines.push(`  from: ${where} (${state})`);
   }
@@ -648,15 +695,35 @@ function values(path: string): Array<{ key: string; value: string }> {
       for (const [k, v] of Object.entries(at as Record<string, unknown>)) walk(v, key ? `${key}.${k}` : k);
     } else if (typeof at === "number" || (typeof at === "string" && /^-?\d/.test(at))) out.push({ key, value: String(at) });
   };
-  if (/\.json$/i.test(path)) { try { walk(JSON.parse(text), ""); } catch { /* not JSON after all */ } return out; }
+  if (/\.json$/i.test(path)) { try { walk(parseJson(text), ""); } catch { /* not JSON after all */ } return out; }
   if (/\.jsonl$/i.test(path)) {
-    text.split("\n").slice(0, 5000).forEach((line, i) => { try { walk(JSON.parse(line), `line ${i + 1}`); } catch { /* skipped */ } });
-    return out;
+    text.split("\n").slice(0, 5000).forEach((line, i) => { try { walk(parseJson(line), `line ${i + 1}`); } catch { /* skipped */ } });
+    // A field on more than 100 lines is one per example, such as each
+    // prediction's probability. A three-digit number turns up among them by
+    // chance, and was offered as where a result came from.
+    const field = (key: string) => key.replace(/^line \d+\.?/, "");
+    const lines = Map.groupBy(out, (v) => field(v.key));
+    return out.filter((v) => lines.get(field(v.key))!.length <= 100);
   }
   if (/\.(csv|tsv)$/i.test(path)) {
     const rows = table(path, text);
     const header = rows[0] ?? [];
-    for (const row of rows.slice(1, 5000)) row.forEach((cell, i) => { if (i > 0 && /^-?\d/.test(cell)) out.push({ key: `${row[0]}/${header[i] ?? i}`, value: cell }); });
+    const data = rows.slice(1, 5000);
+    // Each row by the fewest leading columns that tell it from every other,
+    // so readValue finds that row and no other.
+    const lead = (r: string[], n: number) => r.slice(0, n).join("\u0000");
+    const counts: Array<Map<string, string[][]>> = [];
+    for (const row of data) {
+      let name: string | null = null;
+      for (let n = 1; n <= header.length && name === null; n++) {
+        const c = counts[n] ??= Map.groupBy(data, (r) => lead(r, n));
+        if (c.get(lead(row, n))!.length !== 1) continue;
+        // Columns or cells holding "," or "=" would make a name that can't be read back apart.
+        if (n > 1 && [...header.slice(0, n), ...row.slice(0, n)].some((v) => /[,=]/.test(v))) break;
+        name = n === 1 ? row[0]! : header.slice(0, n).map((h, i) => `${h}=${row[i]}`).join(",");
+      }
+      if (name !== null) row.forEach((cell, i) => { if (i > 0 && /^-?\d/.test(cell)) out.push({ key: `${name}/${header[i] ?? i}`, value: cell }); });
+    }
     return out;
   }
   if (/\.(txt|log|out|yaml|yml|tex)$/i.test(path)) {
@@ -714,15 +781,16 @@ function matcher(text: string): (line: string) => boolean {
 }
 
 /** What whence reads once, kept so a document check can ask about many numbers. */
-export interface WhenceScope { results?: ResultView[]; rows?: LogRow[]; data?: DataFile[] }
+export interface WhenceScope { results?: ResultView[]; rows?: LogRow[]; data?: DataFile[]; values?: Map<string, Array<{ key: string; value: string }>> }
 
 interface DataFile { path: string; values: Array<{ key: string; value: string }>; mtime: number }
 
 /** Folders of dependencies, builds and caches, never a project's results. */
-const SKIP_DIRS = new Set(["node_modules", "venv", "env", "__pycache__", "site-packages", "dist", "build", "target", "coverage"]);
+const SKIP_DIRS = new Set(["node_modules", "vendor", "venv", "env", "__pycache__", "site-packages", "dist", "build", "target", "coverage"]);
+export const skipDir = (name: string): boolean => name.startsWith(".") || SKIP_DIRS.has(name);
 const DATA_FILE = /\.(json|jsonl|csv|tsv|log|out|txt|ya?ml)$/i;
 /** Manifests and lockfiles: full of version numbers, never results. */
-const MANIFEST = /^(package(-lock)?\.json|bun\.lockb?|yarn\.lock|pnpm-lock\.yaml|tsconfig.*\.json|composer\.(json|lock)|Pipfile\.lock|poetry\.lock|requirements.*\.txt|\.?[\w-]*rc\.json)$/i;
+export const MANIFEST = /^(package(-lock)?\.json|bun\.lockb?|yarn\.lock|pnpm-lock\.yaml|[jt]sconfig.*\.json|composer\.(json|lock)|Pipfile\.lock|poetry\.lock|requirements.*\.txt|\.?[\w-]*rc\.json)$/i;
 const PLAIN_NUMBER = /^-?\d+(?:\.\d+)?(?:e[-+]?\d+)?%?$/i;
 
 /**
@@ -739,7 +807,7 @@ function dataFiles(repo: string): DataFile[] {
       if (out.length >= 2000 || bytes > 96 * 1024 * 1024) return;
       const abs = join(dir, e.name);
       if (e.isDirectory()) {
-        if (depth < 8 && !e.name.startsWith(".") && !SKIP_DIRS.has(e.name)) walk(abs, depth + 1);
+        if (depth < 8 && !skipDir(e.name)) walk(abs, depth + 1);
         continue;
       }
       if (!e.isFile() || !DATA_FILE.test(e.name) || MANIFEST.test(e.name)) continue;
@@ -813,7 +881,11 @@ export function whence(repo: string, text: string, limit = 8, scope: WhenceScope
       if (fraction) continue;
       const real = realInside(repo, path);
       if (!real) continue;
-      for (const { key, value } of values(real)) {
+      // Read once per document: each number read every file again, and a
+      // claims table of 165 numbers took 44 s.
+      const cache = scope.values ??= new Map();
+      if (!cache.has(real)) cache.set(real, values(real));
+      for (const { key, value } of cache.get(real)!) {
         if (!sameNumber(written, value)) continue;
         const now = fingerprint(real);
         files.push({ path, key, found: value, command: row.command!.split("\n")[0]!.slice(0, 600), ts: row.ts, changed: !now || now.hash !== row.hash });

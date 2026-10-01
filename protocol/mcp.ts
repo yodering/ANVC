@@ -224,6 +224,7 @@ const TOOLS = [
       + "Months later nobody remembers which run made a number or whether it can still be trusted, so record it when you produce or report it: "
       + "the value as written, the file and key it was read from, the command and settings, the files it depends on, and why. "
       + "ANVC checks the value is really at the source and fingerprints the files, so a later reader sees whether anything changed. "
+      + "To record several, pass them as `results`, one call for all of them; a field given beside the list, such as a shared command or depends, applies to each. "
       + "To change a result's status later, pass `of` with its id and the new status. Locking is the person's decision: asking for locked records a proposal.",
     inputSchema: {
       type: "object",
@@ -231,11 +232,11 @@ const TOOLS = [
         name: { type: "string", description: "What the value is, as someone would say it: \"D accuracy\", \"Table 2 F1\"." },
         value: { type: "string", description: "The value as it is written where it is used: \"88.1%\", \"0.8812\", \"1.2 s\"." },
         status: { type: "string", enum: [...RESULT_STATUSES], description: "draft: still being worked on. current: the good one for now. locked: final, don't re-run (the person decides; you can propose it). superseded: replaced. invalid: wrong. Defaults to current." },
-        of: { type: "string", description: "Only to change an existing result's status: its id. Then give status and why, nothing else." },
+        of: { type: "string", description: "Only to change an existing result's status: its id. Then give status and why, nothing else. Setting it current again after checking it fingerprints its files as they are now, which clears a flag that something changed." },
         part: { type: "string", description: "The part of the project it belongs to, so only that part's changes make it stale: \"retrieval\", \"component D\"." },
         source: {
           type: "object",
-          description: "The file it was read from, repository-relative, and where in it: a JSON path (\"test.acc\"), a CSV \"row/column\", or the label on a log line.",
+          description: "The file it was read from, repository-relative, and where in it: a JSON path, with list items by number (\"test.acc\", \"runs.2.f1\"); a CSV \"row/column\", the row named by its first cell, or by columns when the first cell repeats (\"benchmark=aftraj,horizon=3/auc\"); or the label on a log line. JSON with NaN in it, as Python writes it, reads fine.",
           properties: { path: { type: "string" }, key: { type: "string" } },
           required: ["path"],
         },
@@ -247,6 +248,7 @@ const TOOLS = [
         used_in: { type: "array", items: { type: "string" }, description: "Where it is used: \"paper.tex Table 2\"." },
         why: { type: "string", description: "What it is for and what changed from the last version. For a status change, why." },
         after_the_fact: { type: "boolean", description: "True when you are recording a result you didn't see being made." },
+        results: { type: "array", items: { type: "object" }, description: "Several results, each with the fields above." },
       },
     },
   },
@@ -677,22 +679,47 @@ function callTool(name: string, args: Record<string, unknown>): string {
           ? `Proposed marking ${view.name} ${status}. It is ${view.status} until the person decides: anvc result ${status === "locked" ? "lock" : status} ${view.id}`
           : `${view.name} is now ${view.status}.`;
       }
-      if (typeof args.name !== "string" || typeof args.value !== "string") return "A result needs a name and a value.";
       const strings = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === "string") : undefined);
-      const source = args.source && typeof args.source === "object" ? args.source as { path?: string; key?: string } : undefined;
-      const done = recordResult(repo, {
-        name: args.name, value: args.value, status,
-        part: typeof args.part === "string" ? args.part : undefined,
-        source: source?.path ? { path: repoPath(source.path), ...(source.key ? { key: source.key } : {}) } : undefined,
-        command: typeof args.command === "string" ? args.command : undefined,
-        settings: args.settings && typeof args.settings === "object"
-          ? Object.fromEntries(Object.entries(args.settings as Record<string, unknown>).map(([k, v]) => [k, String(v)])) : undefined,
-        depends: strings(args.depends)?.map(repoPath), derived_from: strings(args.derived_from),
-        replaces: typeof args.replaces === "string" ? args.replaces : undefined, used_in: strings(args.used_in),
-        why: typeof args.why === "string" ? args.why : undefined, after_the_fact: args.after_the_fact === true,
-      }, actor);
-      logActivity({ kind: "recorded", repo: activityRepo, session: runId(), via: "anvc_result", outcome: "result", records: [done.id], titles: [`${args.name} = ${args.value}`] });
-      return [`Recorded result ${args.name} = ${args.value}`, `  id: ${done.id}`, ...done.notes.map((n) => `  ${n}`)].join("\n");
+      const save = (r: Record<string, unknown>) => {
+        if (typeof r.name !== "string" || typeof r.value !== "string") throw new Error("A result needs a name and a value.");
+        const source = r.source && typeof r.source === "object" ? r.source as { path?: string; key?: string } : undefined;
+        const done = recordResult(repo, {
+          name: r.name, value: r.value, status: typeof r.status === "string" ? r.status as ResultStatus : undefined,
+          part: typeof r.part === "string" ? r.part : undefined,
+          source: source?.path ? { path: repoPath(source.path), ...(source.key ? { key: source.key } : {}) } : undefined,
+          command: typeof r.command === "string" ? r.command : undefined,
+          settings: r.settings && typeof r.settings === "object"
+            ? Object.fromEntries(Object.entries(r.settings as Record<string, unknown>).map(([k, v]) => [k, String(v)])) : undefined,
+          depends: strings(r.depends)?.map(repoPath), derived_from: strings(r.derived_from),
+          replaces: typeof r.replaces === "string" ? r.replaces : undefined, used_in: strings(r.used_in),
+          why: typeof r.why === "string" ? r.why : undefined, after_the_fact: r.after_the_fact === true,
+        }, actor);
+        logActivity({ kind: "recorded", repo: activityRepo, session: runId(), via: "anvc_result", outcome: "result", records: [done.id], titles: [`${r.name} = ${r.value}`] });
+        return done;
+      };
+      if (!Array.isArray(args.results)) {
+        if (typeof args.name !== "string" || typeof args.value !== "string") return "A result needs a name and a value.";
+        const done = save(args);
+        return [`Recorded result ${args.name} = ${args.value}`, `  id: ${done.id}`, ...done.notes.map((n) => `  ${n}`)].join("\n");
+      }
+      // Many results in one call answer in a line, plus one for each that
+      // needs a look: thirty three-line replies filled the person's screen.
+      const { results, ...shared } = args;
+      let recorded = 0, matched = 0;
+      const problems: string[] = [];
+      for (const item of results as unknown[]) {
+        const r = { ...shared, ...(item && typeof item === "object" ? item : {}) } as Record<string, unknown>;
+        try {
+          const done = save(r);
+          recorded++;
+          if (done.notes.some((n) => n.startsWith("Checked: "))) matched++;
+          const needs = done.notes.filter((n) => !/^(Checked: |Command taken from the log|Depends on, from)/.test(n));
+          if (needs.length) problems.push(`- ${r.name} (${done.id}): ${needs.join(" ")}`);
+        } catch (error) {
+          problems.push(`- ${String(r.name ?? "a result")}: not recorded. ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      return [`Recorded ${recorded} of ${(results as unknown[]).length} results; ${matched} match their files.`, ...problems].join("\n");
     }
     case "anvc_results": {
       if (dataMode(repo).mode === "off") return "Keeping track of results is off for this project.";

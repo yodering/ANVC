@@ -1,10 +1,10 @@
 {
   "name": "anvc",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test ./tests",
+    "test": "bun test ./tests --timeout 30000",
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun run test",
     "anvc": "bun protocol/cli.ts",

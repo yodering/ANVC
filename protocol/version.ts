@@ -19,6 +19,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { gitOrNull } from "./git";
+import { RELEASES } from "./desktop";
 import { isRepo, readJson, writeJson } from "./rawlog";
 
 /** Where this copy of anvc lives: the folder hooks and the MCP server run from. */
@@ -126,6 +127,8 @@ interface UpdateState {
   behind: number;
   /** Their subjects, newest first. */
   changes: string[];
+  /** For the plugin, which has no commits to count: the newest released version. */
+  latest?: string;
   error?: string;
 }
 
@@ -144,9 +147,27 @@ export function readUpdate(home = HOME): UpdateState | null {
   return state;
 }
 
-/** Asks the remote this folder was cloned from whether it has moved on. */
+/** The newest version among `git ls-remote --tags` lines, such as "…\trefs/tags/v0.4.4". */
+export function newestTag(lsRemote: string): string | null {
+  const versions = [...lsRemote.matchAll(/refs\/tags\/v(\d+\.\d+\.\d+)$/gm)].map((m) => m[1]!);
+  return versions.sort((a, b) => Bun.semver.order(b, a))[0] ?? null;
+}
+
+/**
+ * Asks the remote this folder was cloned from whether it has moved on. The
+ * plugin has no clone, and Claude Code doesn't update it unasked, so people
+ * stayed on the version they installed without knowing; it asks the public
+ * repository for its newest release tag instead, which sends nothing of theirs.
+ */
 export function checkForUpdate(home = HOME): UpdateState {
   const checked = new Date().toISOString();
+  if (managedBy() === "plugin") {
+    const tags = Bun.spawnSync(["git", "ls-remote", "--tags", "--refs", `https://github.com/${RELEASES}.git`], {
+      stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }, windowsHide: true,
+    });
+    const latest = tags.success ? newestTag(tags.stdout.toString()) : null;
+    return save(latest ? { checked, behind: 0, changes: [], latest } : { checked, behind: 0, changes: [], error: "couldn't reach the anvc repository" });
+  }
   const upstream = gitOrNull(home, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
   if (!upstream) return save({ checked, behind: 0, changes: [], error: "this copy of anvc has no remote branch to compare with" });
   const [remote] = upstream.split("/");
@@ -169,20 +190,23 @@ export function save(state: UpdateState): UpdateState {
  * its answer is read on a later turn.
  */
 export function checkDaily(): void {
-  if (process.env.ANVC_NO_UPDATE_NOTICE || managedBy() !== "git") return;
+  if (process.env.ANVC_NO_UPDATE_NOTICE || managedBy() === "desktop") return;
   try {
     const file = updateFile();
     if (existsSync(file) && Date.now() - statSync(file).mtimeMs < 86_400_000) return;
     // Written first, so turns in the next few seconds do not start a second.
     save({ ...(readUpdate() ?? { behind: 0, changes: [] }), checked: new Date().toISOString() });
     // No shell: the folder anvc was cloned into can have any name.
-    spawn("bun", [join(HOME, "protocol/cli.ts"), "update", "--check"], { detached: true, stdio: "ignore", windowsHide: true })
+    spawn("bun", [CLI, "update", "--check"], { detached: true, stdio: "ignore", windowsHide: true })
       .on("error", () => { /* no check today */ }).unref();
   } catch { /* no check today */ }
 }
 
 /** One plain line about updates, or null when there is nothing to say. */
 export function updateLine(state: UpdateState | null): string | null {
+  if (state?.latest && Bun.semver.order(state.latest, version()) > 0) {
+    return `ANVC ${state.latest} is out, and this is ${version()}. To update, run in a terminal: claude plugin marketplace update anvc && claude plugin update anvc@anvc, then start a new session.`;
+  }
   if (!state || !state.behind) return null;
   return `ANVC has ${state.behind} update${state.behind === 1 ? "" : "s"} ready. Run: bun run anvc update`;
 }

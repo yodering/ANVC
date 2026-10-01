@@ -22,7 +22,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { repoRoot } from "./activity";
 import { toolCall } from "./agents";
-import { homedir } from "node:os";
+import { claudeDir, codexDir, cursorDir } from "./version";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DELEGATE_TOOLS, type CaptureEvent } from "./ingest";
@@ -44,7 +44,7 @@ import { scrub as scrubSecrets } from "./scrub";
  * backslashes go too, so C:\Users\you\app would be C--Users-you-app; that
  * form wasn't checked against a real Claude Code folder.
  */
-export function transcriptDir(repo: string, root = join(homedir(), ".claude", "projects")): string {
+export function transcriptDir(repo: string, root = join(claudeDir(), "projects")): string {
   return join(root, repo.replace(/[\\/:_]/g, "-"));
 }
 
@@ -195,7 +195,7 @@ export function readTranscript(
  * project's sessions are found by the working directory in each file's
  * first line, `session_meta`.
  */
-export function codexSessions(root = join(homedir(), ".codex", "sessions")): string[] {
+export function codexSessions(root = join(codexDir(), "sessions")): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     let names: string[] = [];
@@ -354,7 +354,7 @@ function textOf(content: unknown): string {
  * `~/.cursor/projects/<path with / and _ as ->/agent-transcripts/<id>/<id>.jsonl`.
  * On Windows \ and : become - as well, a guess no real Cursor folder checked.
  */
-export function cursorSessions(repo: string, root = join(homedir(), ".cursor", "projects")): Array<{ session: string; path: string }> {
+export function cursorSessions(repo: string, root = join(cursorDir(), "projects")): Array<{ session: string; path: string }> {
   const dir = join(root, repo.replace(/^\/+/, "").replace(/[\\/:_]/g, "-"), "agent-transcripts");
   const out: Array<{ session: string; path: string }> = [];
   let ids: string[] = [];

@@ -27,7 +27,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { refFor } from "../../protocol/record";
-import { gitOrNull } from "../../protocol/git";
+import { gitOrNull, leftBehindLine, recordsLeftBehind } from "../../protocol/git";
 import { appendDaily, logActivity, readActivity, receipt } from "../../protocol/activity";
 import { capturedEdits } from "../../protocol/handoff";
 import { keepSession } from "../../protocol/keep";
@@ -204,7 +204,9 @@ try {
     try { told = readFileSync(dayFile, "utf8").trim(); } catch { /* not told today */ }
     const about = told === today || process.env.ANVC_NO_UPDATE_NOTICE ? [] : [
       updateLine(readUpdate()),
-      hooksBehind(repo, agent) ? "This repository's ANVC hooks are older than ANVC. Run: bun run anvc update" : null,
+      // The plugin's hooks are the plugin's own, so they're as new as it is.
+      managedBy() !== "plugin" && hooksBehind(repo, agent) ? "This repository's ANVC hooks are older than ANVC. Run: bun run anvc update" : null,
+      leftBehindLine(recordsLeftBehind(repo)),
     ].filter(Boolean);
     if (about.length) { try { mkdirSync(stateDir, { recursive: true }); writeFileSync(dayFile, today); } catch { /* said again tomorrow */ } }
     // Once per folder: ANVC runs in every repository once installed, so the

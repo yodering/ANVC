@@ -39,6 +39,7 @@ Twenty-seven MCP tools. The agent writes records with the first one.
 ```bash
 bun run anvc open                  # this project's work log in the browser; --desktop for the desktop app
 bun run anvc init                  # make records travel with push and fetch; --off stops them
+bun run anvc catch-up              # bring in the sessions from before ANVC was on, and list the files that hold numbers
 bun run anvc abandoned src/api.ts  # abandoned work touching a file
 bun run anvc search "ETIMEDOUT"    # every record and the command log
 bun run anvc sources arxiv.org     # pages, searches and documents agents read; with an id, the text kept
@@ -62,7 +63,7 @@ bun run anvc remove --remote origin  # back up, delete the records here and on o
 bun run anvc restore <file>        # bring a backup back; without a file, list this project's backups
 bun run anvc results               # recorded results, and whether what they depend on changed
 bun run anvc whence 88.1%          # where a number came from
-bun run anvc check paper.tex       # where every number in a document came from
+bun run anvc check notes/eval.md   # where every number in a document came from: notes, a README, a paper
 bun run anvc run -- python a.py    # run something yourself, logged so its numbers can be traced
 bun run anvc result lock <id>      # lock a result; also unlock and invalid
 bun run anvc data off              # stop keeping track of results in this project

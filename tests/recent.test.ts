@@ -25,11 +25,11 @@ test("setup offers recent repositories first, then the ones found, and leaves ou
   writeFileSync(join(project, "s.jsonl"), `${JSON.stringify({ type: "user", cwd: join(recent, "src") })}\n`);
   utimesSync(join(project, "s.jsonl"), new Date(), new Date());
   const p = Bun.spawnSync(["bun", "-e", `
-    import { candidates } from "${join(import.meta.dir, "../protocol/recent")}";
+    import { candidates } from ${JSON.stringify(join(import.meta.dir, "../protocol/recent"))};
     console.log(JSON.stringify(candidates([${JSON.stringify(clone)}])));
-  `], { env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CODEX_HOME: join(home, ".codex") }, stdout: "pipe", stderr: "pipe" });
+  `], { env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CODEX_HOME: join(home, ".codex") }, stdout: "pipe", stderr: "pipe" });
   const list = JSON.parse(p.stdout.toString()) as Array<{ repo: string; by: string | null }>;
-  expect(list.map((c) => c.repo.split("/").at(-1))).toEqual(["recent", "found"]);
+  expect(list.map((c) => c.repo.split(/[\\/]/).at(-1))).toEqual(["recent", "found"]);
   expect(list[0]!.by).toBe("Claude Code");
   expect(list[1]!.by).toBeNull();
 });

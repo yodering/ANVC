@@ -17,7 +17,7 @@ const QUESTIONS: Array<[string, ComponentChildren]> = [
     What your agent tried in this repository: each attempt's goal, whether it worked, and why it ended, kept as a small git ref. It also keeps a log of the commands, output and files of each session, and a copy of the session, in <code>~/.anvc</code> on this computer.
   </>],
   ["Does anything leave my computer?", <>
-    Shared records go to your own remote when you <code>git push</code>, and nothing is sent to ANVC's authors. If you set up <code>anvc sync</code>, your private history also goes to a remote only you can read. Installed from a git clone, ANVC runs <code>git fetch</code> on its own folder once a day to check for an update.
+    Shared records go to your own remote when you <code>git push</code>, and nothing is sent to ANVC's authors. If you set up <code>anvc sync</code>, your private history also goes to a remote only you can read. Once a day ANVC checks for an update: a git clone runs <code>git fetch</code> on its own folder, and the plugin asks GitHub for the newest release's version number.
   </>],
   ["Who can read my records?", <>
     Anyone who can fetch the repository can read its shared records. Private records aren't pushed with your code, and in a project that's Local only, every record is private.
@@ -36,6 +36,9 @@ const QUESTIONS: Array<[string, ComponentChildren]> = [
   </>],
   ["Does it slow my agent down?", <>
     In a repository with about 100 records, the hooks took 36 ms before each tool call and 13 ms after it. Whatever ANVC tells the agent at once stays under 9,000 characters.
+  </>],
+  ["I turned ANVC on in a project I'd already worked on. Can it catch up?", <>
+    Yes. The first session after, your agent offers to bring in the earlier sessions and to record the numbers already in your files. From a terminal, <code>anvc catch-up</code> imports the sessions and lists those files.
   </>],
   ["Can an old record mislead my agent?", <>
     It can, so each record is shown with when it was written, and a dead end's check can run first to see if it still fails. A record that's no longer true can be retired, and then it isn't shown.

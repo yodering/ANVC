@@ -197,6 +197,6 @@ test("the agent gets the list at session start and each rule set's text once, wh
   writeAssist(repo, { level: "start" });
   expect(said("PreToolUse", edit, "s2")).toContain("Put the new thing");
   writeAssist(repo, { moment: "rules", on: false });
-  expect(said("SessionStart", { source: "startup" }, "s3")).toBeNull();
+  expect(said("SessionStart", { source: "startup" }, "s3")).not.toContain("writing rules");
   expect(said("PreToolUse", commit, "s3")).toBeNull();
 }, 60_000);

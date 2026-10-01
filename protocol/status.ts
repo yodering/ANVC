@@ -349,7 +349,7 @@ function finished(db: Database, root: string, items: Item[]): Finished[] {
     ORDER BY ts DESC LIMIT ?`).all(DONE) as AttemptRow[]).map((r) => ({ ...r, kind: "attempt" as const }));
   const done = items.filter((i) => i.state === "done").map((i) => ({ ...i, ts: i.since, kind: "item" as const }));
   const files = db.prepare(`SELECT path FROM files WHERE id = ? AND kind = 'write'`);
-  // ponytail: three git calls per attempt on every read; cache by record id and HEAD if the page gets slow.
+  // Three git calls per attempt on every read; cache by record id and HEAD if the page gets slow.
   return [...attempts, ...done].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, DONE).map((f): Finished => f.kind === "item"
       ? { id: f.id, title: f.title, ts: f.ts, kind: "item", stands: null, commit: null, tag: null, goal: f.goal, agent: agentName(f.by), from: f.from }
       : {

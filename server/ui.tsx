@@ -759,7 +759,7 @@ function App() {
             class={`nav-item${!session && page === "work" ? " active" : ""}`}
             onClick={() => { setPage("work"); reset(); }}
           >
-            <Icon name="layers" />
+            <Icon name="history" />
             <span>Work log</span>
           </button>
           {PAGES.map(([id, icon, label]) => (

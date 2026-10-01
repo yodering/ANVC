@@ -483,6 +483,7 @@ function Sprite() {
     "aria-hidden": "true",
     dangerouslySetInnerHTML: {
       __html: `
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></symbol>
   <symbol id="i-circle-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></symbol>
   <symbol id="i-message-circle-question" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
@@ -6318,11 +6319,11 @@ var QUESTIONS = [
       /* @__PURE__ */ u3("code", {
         children: "anvc sync"
       }, undefined, false, undefined, this),
-      ", your private history also goes to a remote only you can read. Installed from a git clone, ANVC runs ",
+      ", your private history also goes to a remote only you can read. Once a day ANVC checks for an update: a git clone runs ",
       /* @__PURE__ */ u3("code", {
         children: "git fetch"
       }, undefined, false, undefined, this),
-      " on its own folder once a day to check for an update."
+      " on its own folder, and the plugin asks GitHub for the newest release's version number."
     ]
   }, undefined, true, undefined, this)],
   ["Who can read my records?", /* @__PURE__ */ u3(S, {
@@ -6349,6 +6350,15 @@ var QUESTIONS = [
   ["Does it slow my agent down?", /* @__PURE__ */ u3(S, {
     children: "In a repository with about 100 records, the hooks took 36 ms before each tool call and 13 ms after it. Whatever ANVC tells the agent at once stays under 9,000 characters."
   }, undefined, false, undefined, this)],
+  ["I turned ANVC on in a project I'd already worked on. Can it catch up?", /* @__PURE__ */ u3(S, {
+    children: [
+      "Yes. The first session after, your agent offers to bring in the earlier sessions and to record the numbers already in your files. From a terminal, ",
+      /* @__PURE__ */ u3("code", {
+        children: "anvc catch-up"
+      }, undefined, false, undefined, this),
+      " imports the sessions and lists those files."
+    ]
+  }, undefined, true, undefined, this)],
   ["Can an old record mislead my agent?", /* @__PURE__ */ u3(S, {
     children: "It can, so each record is shown with when it was written, and a dead end's check can run first to see if it still fails. A record that's no longer true can be retired, and then it isn't shown."
   }, undefined, false, undefined, this)],
@@ -7456,7 +7466,7 @@ function App() {
                 },
                 children: [
                   /* @__PURE__ */ u3(Icon, {
-                    name: "layers"
+                    name: "history"
                   }, undefined, false, undefined, this),
                   /* @__PURE__ */ u3("span", {
                     children: "Work log"

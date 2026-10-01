@@ -73,6 +73,27 @@ export function recordsTravel(repo: string): boolean | null {
 }
 
 /**
+ * Shared records that didn't go to origin with the code: the branch is
+ * pushed, and these aren't there. `git push origin <branch>` sends only that
+ * branch, whatever refspecs init configured, so a person or agent who names
+ * it pushes the code and leaves every record behind. A push of records
+ * updates refs/remotes/origin/anvc, which is what this compares with. Null
+ * where records don't travel, or the branch has commits origin hasn't.
+ */
+export function recordsLeftBehind(repo: string): number | null {
+  if (!recordsTravel(repo)) return null;
+  if (gitOrNull(repo, ["rev-list", "--count", "@{u}..HEAD"]) !== "0") return null;
+  const names = (prefix: string) => readRefs(repo, prefix).map((r) => r.ref.slice(prefix.length));
+  const there = new Set(names("refs/remotes/origin/anvc/"));
+  return names("refs/anvc/").filter((r) => !there.has(r)).length;
+}
+
+/** What the person is told when records were left behind, or null. */
+export const leftBehindLine = (n: number | null): string | null => n
+  ? `Your code is pushed, but ${n} ANVC record${n === 1 ? " isn't" : "s aren't"}: a push that names a branch sends only that branch. Run git push with no branch named.`
+  : null;
+
+/**
  * Makes an ordinary push and fetch carry records. Shared by `anvc init` and
  * `setup`, which had each kept their own copy of the list.
  *

@@ -22,10 +22,10 @@
  * this user only. Never pushed, and not synced: sync copies the day files
  * only. The "Sources" field of the project's policy turns it off.
  */
-import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { captureRoot, headTail, inRepo, jsonl, readJsonl, repoKey } from "./rawlog";
+import { captureRoot, headTail, inRepo, jsonl, readHead, readJsonl, repoKey } from "./rawlog";
 import { scrub } from "./scrub";
 import { shellPaths } from "./shell-paths";
 import { AGENT_NAMES, responseOf, type ToolCall } from "./agents";
@@ -91,15 +91,9 @@ function documentText(path: string, pages: unknown): string | null {
     const p = Bun.spawnSync(["pdftotext", "-q", ...which, path, "-"], { stdout: "pipe", stderr: "ignore", timeout: 5000, windowsHide: true });
     return p.exitCode === 0 ? str(p.stdout.toString()) : null;
   }
-  try {
-    const fd = openSync(path, "r");
-    try {
-      // ponytail: a file over MAX_READ is read from its start only, so its kept tail is from there.
-      const buf = Buffer.alloc(Math.min(MAX_READ, fstatSync(fd).size));
-      const text = buf.subarray(0, readSync(fd, buf, 0, buf.length, 0)).toString("utf8");
-      return text.includes("\u0000") ? null : str(text);
-    } finally { closeSync(fd); }
-  } catch { return null; }
+  // A file over MAX_READ is read from its start only, so its kept tail is from there.
+  const text = readHead(path, MAX_READ);
+  return text === null || text.includes("\u0000") ? null : str(text);
 }
 
 /** A document's own title: its first heading, <title> or \title{}. */
@@ -171,7 +165,7 @@ export function keepSources(repo: string, payload: Record<string, unknown>, call
 
 /** Every source kept for this project, newest first. */
 export function readSources(repo: string): Source[] {
-  // ponytail: every day's file is read on each call; index them if a project keeps thousands.
+  // Every day's file is read on each call; index them if a project keeps thousands.
   return jsonl(folder(repo)).flatMap((f) => readJsonl<Source>(f)).sort((a, b) => b.ts.localeCompare(a.ts));
 }
 

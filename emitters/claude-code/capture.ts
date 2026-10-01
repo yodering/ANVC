@@ -21,6 +21,7 @@ import { readPolicy } from "../../protocol/policy";
 import { folderOn } from "../../protocol/folders";
 import { dataMode } from "../../protocol/results";
 import { runFiles } from "../../protocol/runs";
+import { isDataPath, noteWritten } from "../../protocol/catchup";
 import { codexExit, hookInput, outputOf, succeeded, toolCall } from "../../protocol/agents";
 import { keepSources } from "../../protocol/sources";
 import { sessionRows } from "../../protocol/evidence";
@@ -136,6 +137,9 @@ try {
     try {
       const files = runFiles(call.command, cwd, repo);
       if (files.outputs.length) record.outputs = files.outputs;
+      // A data file or a folder it wrote, for the injection hook to ask about
+      // recording the numbers in it (protocol/catchup.ts).
+      if (record.session_id) noteWritten(String(record.session_id), files.outputs.map((f) => f.path).filter((p) => isDataPath(p) || !/\.\w+$/.test(p)));
       if (files.inputs.length) record.inputs = files.inputs;
     } catch { /* the row is kept without them */ }
   }

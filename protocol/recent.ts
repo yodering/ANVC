@@ -4,15 +4,15 @@
  * where people usually keep projects. Setup used to ask for a path, starting
  * from ANVC's own folder, so the person had to remember where each project was.
  */
-import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { codexMeta, codexSessions } from "./backfill";
 import { folders } from "./folders";
 import { findRepos } from "./found";
 import { gitOrNull } from "./git";
-import { samePath } from "./rawlog";
-import { claudeDir, codexDir } from "./version";
+import { readHead, samePath } from "./rawlog";
+import { claudeDir } from "./version";
 
 export interface Candidate {
   repo: string;
@@ -30,19 +30,12 @@ const SESSIONS = 40;
 
 /** The first working folder named in a session file's opening 64 KiB. */
 function firstCwd(file: string): string | null {
-  try {
-    const fd = openSync(file, "r");
+  for (const line of (readHead(file, 64 * 1024) ?? "").split("\n")) {
     try {
-      const buf = Buffer.alloc(64 * 1024);
-      const text = buf.subarray(0, readSync(fd, buf, 0, buf.length, 0)).toString("utf8");
-      for (const line of text.split("\n")) {
-        try {
-          const cwd = (JSON.parse(line) as { cwd?: unknown }).cwd;
-          if (typeof cwd === "string" && cwd) return cwd;
-        } catch { /* a line cut off at the end, or not JSON */ }
-      }
-    } finally { closeSync(fd); }
-  } catch { /* unreadable */ }
+      const cwd = (JSON.parse(line) as { cwd?: unknown }).cwd;
+      if (typeof cwd === "string" && cwd) return cwd;
+    } catch { /* a line cut off at the end, or not JSON */ }
+  }
   return null;
 }
 
@@ -81,7 +74,7 @@ export function candidates(exclude: string[] = [], limit = 40): Candidate[] {
     if (!had || (used ?? 0) > (had.used ?? 0)) seen.set(key, { repo: key, used, by });
   };
   for (const s of claudeSessions()) if (s.cwd) add(top(s.cwd), s.at, "Claude Code");
-  const codex = codexSessions(join(codexDir(), "sessions")).slice(-SESSIONS);
+  const codex = codexSessions().slice(-SESSIONS);
   for (const path of codex) { const cwd = codexMeta(path).cwd; if (cwd) add(top(cwd), mtime(path), "Codex"); }
   for (const f of folders()) add(existsSync(f.repo) ? f.repo : null, Date.parse(f.seen), "ANVC");
   const roots = USUAL.map((name) => join(homedir(), name)).filter((dir) => existsSync(dir));

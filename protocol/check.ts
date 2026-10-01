@@ -66,11 +66,6 @@ function wordsOf(text: string): string[] {
 const keyOf = (m: RegExpMatchArray) => m[1] !== undefined ? `${m[1]}/${m[2]}` : m[3] !== undefined ? `${m[3]}/${m[4]}` : m[5]!;
 
 /**
- * Every place a number that reads as a result appears. Its neighbours are
- * the other numbers in its table row, or in its sentence, which in prose
- * often runs across a line break.
- */
-/**
  * A LaTeX line as the words and numbers a reader sees: comments, citations
  * and labels gone, \num{0.881} and \SI{5.4}{\ms} as their numbers, 88.1\% as
  * 88.1%, 1{,}452 as 1,452.
@@ -87,12 +82,22 @@ function unTex(line: string): string {
     .replace(/[{}$~]/g, " ");
 }
 
+/** A column of row numbers, such as "#" or "id". */
+const ID_COLUMN = /^\s*(#|id|no\.?|nr\.?|row|item)\s*$/i;
+/** Words that make the number after them a place in the document, "row 2.1" or "Table 1", not a value. */
+const REFERENCE = /\b(rows?|tables?|figs?\.?|figures?|sections?|sec\.|appendix|eqs?\.|equations?|lines?|§)\s*$/i;
+
+/**
+ * Every place a number that reads as a result appears. Its neighbours are
+ * the other numbers in its table row, or in its sentence, which in prose
+ * often runs across a line break.
+ */
 export function numbersIn(text: string, options: { tex?: boolean } = {}): DocNumber[] {
   const tex = options.tex ?? false;
   const out: DocNumber[] = [];
   let fenced = false;
-  let header: string[][] = [];
-  let previous: string[][] = [];
+  let header: string[] = [];
+  let previous: string[] = [];
   let rows = 0;
   let prose: Array<{ line: number; text: string }> = [];
   const flush = () => {
@@ -107,7 +112,7 @@ export function numbersIn(text: string, options: { tex?: boolean } = {}): DocNum
     };
     for (const { line, text: t } of prose) {
       for (const part of t.split(/(?<=[.!?])\s+/)) {
-        for (const m of part.matchAll(ITEM)) sentence.push({ line, key: keyOf(m) });
+        for (const m of part.matchAll(ITEM)) if (!REFERENCE.test(part.slice(0, m.index))) sentence.push({ line, key: keyOf(m) });
         said += ` ${part}`;
         if (/[.!?]\s*$/.test(part)) close();
       }
@@ -117,11 +122,13 @@ export function numbersIn(text: string, options: { tex?: boolean } = {}): DocNum
   };
   // One table row: a cell's words include its column's header.
   const tableRow = (cells: string[], at: number, whole: string) => {
-    previous = cells.map(wordsOf);
+    previous = cells;
     rows++;
-    const row = cells.flatMap((cell, c) => [...cell.matchAll(ITEM)].map((m) => ({ key: keyOf(m), column: c })));
+    // Not the row numbers of a claims table, and not a reference to one.
+    const row = cells.flatMap((cell, c) => ID_COLUMN.test(header[c] ?? "") ? []
+      : [...cell.matchAll(ITEM)].filter((m) => !REFERENCE.test(cell.slice(0, m.index))).map((m) => ({ key: keyOf(m), column: c })));
     const words = wordsOf(whole);
-    for (const { key, column } of row) out.push({ text: key, line: at, beside: [...new Set(row.map((r) => r.key).filter((k) => k !== key))], words: [...new Set([...words, ...(header[column] ?? [])])] });
+    for (const { key, column } of row) out.push({ text: key, line: at, beside: [...new Set(row.map((r) => r.key).filter((k) => k !== key))], words: [...new Set([...words, ...wordsOf(header[column] ?? "")])] });
   };
   const endTable = () => { header = []; previous = []; rows = 0; };
   text.split(/\r?\n/).forEach((raw, i) => {

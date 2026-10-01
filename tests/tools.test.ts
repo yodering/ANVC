@@ -285,7 +285,8 @@ test("a session starts with the notes, again after compaction, and not when the 
   const start = (source: string, session = "s1") =>
     context("SessionStart", { hook_event_name: "SessionStart", session_id: session, cwd: repo, source }, env);
 
-  expect(start("startup")).toBeUndefined();
+  // Only that ANVC is on: there are no notes yet.
+  expect(start("startup")).not.toContain("which tool");
   writeNote(repo, "ponytail-audit", "cleanup audits", person);
   const said = start("startup", "s2");
   expect(said).toContain("anvc: notes on when to use which tool in this project.\n- ponytail-audit: cleanup audits");
