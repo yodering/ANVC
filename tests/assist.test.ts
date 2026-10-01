@@ -47,6 +47,9 @@ test.skipIf(!Bun.which("make"))("with a moment off, nothing is said and no check
     intent: { goal: "Cache the parser in a module Map" }, outcome: { status: "abandoned", errors: ["memory grew"], recheck: "make test" },
     ts: new Date().toISOString(),
   });
+  // On macOS, make is a shim whose first run took over the hook's 2 s limit
+  // on GitHub's runners, so it runs once first.
+  Bun.spawnSync(["make", "--version"], { stdout: "ignore", stderr: "ignore" });
   // Automatic: the briefing names the dead end and its check ran.
   expect(p.inject("SessionStart", { source: "startup" })).toContain("checked just now: still fails");
   // Checks off: still briefed, nothing run.
