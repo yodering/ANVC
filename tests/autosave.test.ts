@@ -101,7 +101,8 @@ test.skipIf(process.platform === "win32")("a turn that couldn't be stored is log
   ]);
   // With the object folders read-only, git can't write the record's blob.
   const objects = join(r.dir, ".git", "objects");
-  const folders = [objects, ...readdirSync(objects).map((d) => join(objects, d))];
+  // Folders only: git's background maintenance can drop a lock file in here and take it away.
+  const folders = [objects, ...readdirSync(objects, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => join(objects, d.name))];
   for (const f of folders) chmodSync(f, 0o555);
   try {
     expect(autosave(r.dir, { session: "s4" })).toEqual([]);

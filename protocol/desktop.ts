@@ -4,54 +4,52 @@
  *
  * The release workflow (.github/workflows/desktop.yml) attaches an installer
  * for each system to the release. Installing downloads the one for this
- * computer and hands it to the system's own installer: on macOS the .dmg
- * opens in Finder to drag to Applications, on Windows the setup .exe runs,
- * and on Linux apt installs the .deb, asking for the password in the
- * terminal. Without apt, the AppImage goes in ~/.local/bin.
- *
- * The installers' names are the ones `tauri build` writes, checked here for
- * the Linux .deb and AppImage. The macOS and Windows names and install
- * folders weren't checked against a release yet.
+ * computer and installs it for this person only, so nothing asks for a
+ * password and an agent can do it: on macOS the app goes in Applications, on
+ * Windows the per-user installer runs without its wizard, and on Linux the
+ * AppImage is unpacked into ~/.local, ahead of a .deb installed before.
  */
-import { spawn } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { shellWord } from "./args";
 
 /** Where the installers are released. The public export names the public repository instead. */
 export const RELEASES = "yodering/anvc";
 
 export interface Asset { name: string; url: string }
 
-const which = (name: string) => Bun.which(name, { PATH: process.env.PATH ?? "" });
+/** A command on the PATH as it is now; Bun.which alone reads the one this process started with. */
+export const which = (name: string) => Bun.which(name, { PATH: process.env.PATH ?? "" });
 
 /**
  * The installer to download for a system and processor. The workflow builds
  * macOS on Apple silicon and the rest on x64, so an Intel Mac or an ARM PC
  * finds none.
  */
-export function installerFor(assets: Asset[], platform: string = process.platform, arch: string = process.arch, apt = Boolean(which("apt"))): Asset | null {
+export function installerFor(assets: Asset[], platform: string = process.platform, arch: string = process.arch): Asset | null {
   const arm = arch === "arm64";
-  const suffix = platform === "darwin" ? `_${arm ? "aarch64" : "x64"}.dmg`
+  const suffix = platform === "darwin" ? `_${arm ? "aarch64" : "x64"}.app.tar.gz`
     : platform === "win32" ? `_${arm ? "arm64" : "x64"}-setup.exe`
-      : platform === "linux" ? (apt ? `_${arm ? "arm64" : "amd64"}.deb` : `_${arm ? "aarch64" : "amd64"}.AppImage`)
+      : platform === "linux" ? `_${arm ? "aarch64" : "amd64"}.AppImage`
         : null;
   return suffix ? assets.find((a) => a.name.endsWith(suffix)) ?? null : null;
 }
 
 /**
  * The command that starts the installed app, or null when it isn't
- * installed. The .deb puts it on the PATH, the AppImage goes in
- * ~/.local/bin, macOS finds an app by its name, and the Windows installer
- * puts it under the person's AppData or, for the .msi, Program Files.
+ * installed. The person's own copy comes first, since installing puts the
+ * newest there: on Linux the launcher in ~/.local/bin before a .deb's on the
+ * PATH, and on macOS ~/Applications before /Applications. The Windows
+ * installer puts it under AppData or, for the .msi, Program Files.
  */
 export function desktopCommand(): string[] | null {
-  const onPath = which("anvc-desktop");
-  if (onPath) return [onPath];
   const local = join(homedir(), ".local", "bin", "anvc-desktop");
   if (process.platform === "linux" && existsSync(local)) return [local];
+  const onPath = which("anvc-desktop");
+  if (onPath) return [onPath];
   if (process.platform === "darwin") {
-    const app = ["/Applications/anvc.app", join(homedir(), "Applications", "anvc.app")].find(existsSync);
+    const app = [join(homedir(), "Applications", "anvc.app"), "/Applications/anvc.app"].find(existsSync);
     return app ? ["open", "-n", app, "--args"] : null;
   }
   if (process.platform === "win32") {
@@ -90,8 +88,10 @@ async function download(asset: Asset, into: string): Promise<string> {
   return file;
 }
 
+const INSTALLED = "Installed the desktop app. Reopen it to use the new version.";
+
 /**
- * Downloads this computer's installer from the latest release and starts
+ * Downloads this computer's installer from the latest release and installs
  * it. Returns what happened, in a sentence, for the person.
  */
 export async function installDesktop(repo: string = RELEASES): Promise<string> {
@@ -102,33 +102,61 @@ export async function installDesktop(repo: string = RELEASES): Promise<string> {
   }
   // A new folder only this user can open: on Linux /tmp is shared, and a
   // folder with a name anyone could guess could be made first by another
-  // user, who could then swap the .deb before sudo installs it.
-  const file = await download(asset, mkdtempSync(join(tmpdir(), "anvc-desktop-")));
-  if (process.platform === "darwin") {
-    spawn("open", [file], { detached: true, stdio: "ignore" }).unref();
-    return `Opened ${asset.name}. Drag anvc to Applications in the window that opened.`;
-  }
+  // user, who could then swap the installer before it runs.
+  const into = mkdtempSync(join(tmpdir(), "anvc-desktop-"));
+  const said = installFile(await download(asset, into));
+  // Kept on a failure, which names the file to try by hand.
+  if (said === INSTALLED) rmSync(into, { recursive: true, force: true });
+  return said;
+}
+
+/**
+ * Installs a downloaded installer for this person only. Returns what
+ * happened, in a sentence. The new app is unpacked beside the old one and
+ * swapped in only once that worked, so a bad download leaves the one that ran.
+ */
+export function installFile(file: string, home: string = homedir(), applications = "/Applications"): string {
   if (process.platform === "win32") {
-    spawn(file, [], { detached: true, stdio: "ignore" }).unref();
-    return `Started the installer, ${asset.name}. Follow it to finish.`;
+    // Tauri's installer is per user, and /S runs it without the wizard.
+    return Bun.spawnSync([file, "/S"], { windowsHide: true }).success ? INSTALLED : `The installer stopped. To run it yourself: ${file}`;
   }
-  if (asset.name.endsWith(".deb")) {
-    const command = ["sudo", "apt", "install", "-y", file];
-    // sudo asks for the password in the terminal, and an agent's shell has
-    // none. On a desktop, pkexec asks in a window instead.
-    if (!process.stdin.isTTY) {
-      const windowed = which("pkexec") && (process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
-      if (windowed && Bun.spawnSync(["pkexec", "apt", "install", "-y", file], { stdout: "ignore", stderr: "ignore" }).success) {
-        return `Installed the desktop app from ${asset.name}. Reopen it to use the new version.`;
-      }
-      return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
-    }
-    const p = Bun.spawnSync(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
-    return p.success ? `Installed the desktop app from ${asset.name}. It's in your app menu as anvc.` : `apt couldn't install it. To try again: ${command.join(" ")}`;
+  const swapIn = (unpacked: string, at: string) => {
+    rmSync(at, { recursive: true, force: true });
+    renameSync(unpacked, at);
+  };
+  if (process.platform === "darwin") {
+    // An admin can write to /Applications without a password, and that's
+    // where an app dragged from the .dmg went.
+    let folder = applications;
+    try { accessSync(folder, constants.W_OK); } catch { folder = join(home, "Applications"); }
+    mkdirSync(folder, { recursive: true });
+    const fresh = mkdtempSync(join(folder, ".anvc-"));
+    const ok = Bun.spawnSync(["tar", "-xzf", file, "-C", fresh]).success && existsSync(join(fresh, "anvc.app"));
+    if (ok) swapIn(join(fresh, "anvc.app"), join(folder, "anvc.app"));
+    rmSync(fresh, { recursive: true, force: true });
+    return ok ? INSTALLED : `Couldn't unpack ${file} into ${folder}.`;
   }
-  const bin = join(homedir(), ".local", "bin");
-  mkdirSync(bin, { recursive: true });
-  copyFileSync(file, join(bin, "anvc-desktop"));
-  chmodSync(join(bin, "anvc-desktop"), 0o755);
-  return `Put the desktop app in ${join(bin, "anvc-desktop")}. An AppImage needs FUSE; if it doesn't start, install libfuse2.`;
+  // Unpacked, an AppImage needs no FUSE, which Ubuntu no longer installs.
+  const dir = join(home, ".local", "share", "anvc-desktop");
+  mkdirSync(dirname(dir), { recursive: true });
+  const fresh = mkdtempSync(`${dir}-`);
+  chmodSync(file, 0o755);
+  const ok = Bun.spawnSync([file, "--appimage-extract"], { cwd: fresh, stdout: "ignore", stderr: "ignore" }).success && existsSync(join(fresh, "squashfs-root", "AppRun"));
+  if (ok) swapIn(join(fresh, "squashfs-root"), dir);
+  rmSync(fresh, { recursive: true, force: true });
+  if (!ok) return `Couldn't unpack ${file}.`;
+  // A script, not a link: AppRun finds its files from the path it was started by.
+  const bin = join(home, ".local", "bin", "anvc-desktop");
+  mkdirSync(dirname(bin), { recursive: true });
+  rmSync(bin, { force: true });
+  writeFileSync(bin, `#!/bin/sh\nexec ${shellWord(join(dir, "AppRun"))} "$@"\n`, { mode: 0o755 });
+  // Named as the .deb's entry, so it takes that one's place in the app menu.
+  // Exec is quoted, with the Desktop Entry spec's escapes, for a home with a space.
+  const apps = join(home, ".local", "share", "applications");
+  mkdirSync(apps, { recursive: true });
+  writeFileSync(join(apps, "anvc.desktop"), [
+    "[Desktop Entry]", "Name=anvc", "Comment=The anvc work log as a desktop app", `Exec="${bin.replace(/["`$\\]/g, "\\\\$&")}"`,
+    `Icon=${join(dir, "anvc-desktop.png")}`, "StartupWMClass=anvc-desktop", "Terminal=false", "Type=Application", "",
+  ].join("\n"));
+  return INSTALLED;
 }

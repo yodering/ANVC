@@ -9,8 +9,8 @@ import { Database } from "bun:sqlite";
 import { isAbsolute as isAbsolute2 } from "path";
 
 // protocol/localonly.ts
-import { existsSync as existsSync4, mkdirSync as mkdirSync3, rmSync, writeFileSync as writeFileSync3 } from "fs";
-import { dirname as dirname2, join as join5 } from "path";
+import { existsSync as existsSync4, mkdirSync as mkdirSync3, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "fs";
+import { dirname as dirname3, join as join5 } from "path";
 
 // protocol/git.ts
 import { spawnSync } from "child_process";
@@ -303,7 +303,7 @@ function collapse(text) {
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.6",
+  version: "0.4.7",
   private: true,
   type: "module",
   scripts: {
@@ -340,7 +340,7 @@ var package_default = {
 };
 
 // protocol/version.ts
-import { spawn as spawn2 } from "child_process";
+import { spawn } from "child_process";
 import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "fs";
 import { homedir as homedir3 } from "os";
 import { delimiter, join as join3, resolve as resolve2 } from "path";
@@ -371,26 +371,25 @@ var shellWord = (w) => /^[\w@%+=:,./-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\
 var cmdWord = (w) => /^[\w@+=:,./\\-]+$/.test(w) ? w : `"${w.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`.replace(/[()[\]%!^"`<>&|;, *?]/g, "^$&");
 
 // protocol/desktop.ts
-import { spawn } from "child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync as mkdirSync2, mkdtempSync, writeFileSync as writeFileSync2 } from "fs";
+import { accessSync, chmodSync, constants, existsSync, mkdirSync as mkdirSync2, mkdtempSync, renameSync, rmSync, writeFileSync as writeFileSync2 } from "fs";
 import { homedir as homedir2, tmpdir } from "os";
-import { join as join2 } from "path";
+import { dirname as dirname2, join as join2 } from "path";
 var RELEASES = "yodering/anvc";
 var which = (name) => Bun.which(name, { PATH: process.env.PATH ?? "" });
-function installerFor(assets, platform = process.platform, arch = process.arch, apt = Boolean(which("apt"))) {
+function installerFor(assets, platform = process.platform, arch = process.arch) {
   const arm = arch === "arm64";
-  const suffix = platform === "darwin" ? `_${arm ? "aarch64" : "x64"}.dmg` : platform === "win32" ? `_${arm ? "arm64" : "x64"}-setup.exe` : platform === "linux" ? apt ? `_${arm ? "arm64" : "amd64"}.deb` : `_${arm ? "aarch64" : "amd64"}.AppImage` : null;
+  const suffix = platform === "darwin" ? `_${arm ? "aarch64" : "x64"}.app.tar.gz` : platform === "win32" ? `_${arm ? "arm64" : "x64"}-setup.exe` : platform === "linux" ? `_${arm ? "aarch64" : "amd64"}.AppImage` : null;
   return suffix ? assets.find((a) => a.name.endsWith(suffix)) ?? null : null;
 }
 function desktopCommand() {
-  const onPath = which("anvc-desktop");
-  if (onPath)
-    return [onPath];
   const local = join2(homedir2(), ".local", "bin", "anvc-desktop");
   if (process.platform === "linux" && existsSync(local))
     return [local];
+  const onPath = which("anvc-desktop");
+  if (onPath)
+    return [onPath];
   if (process.platform === "darwin") {
-    const app = ["/Applications/anvc.app", join2(homedir2(), "Applications", "anvc.app")].find(existsSync);
+    const app = [join2(homedir2(), "Applications", "anvc.app"), "/Applications/anvc.app"].find(existsSync);
     return app ? ["open", "-n", app, "--args"] : null;
   }
   if (process.platform === "win32") {
@@ -429,38 +428,73 @@ async function download(asset, into) {
   writeFileSync2(file, Buffer.from(await answer.arrayBuffer()));
   return file;
 }
+var INSTALLED = "Installed the desktop app. Reopen it to use the new version.";
 async function installDesktop(repo = RELEASES) {
   const { tag, assets } = await latestAssets(repo);
   const asset = installerFor(assets);
   if (!asset) {
     return `${repo}'s release ${tag} has no desktop app for ${process.platform} on ${process.arch}. From a clone of ANVC, \`bun run desktop:build\` builds one.`;
   }
-  const file = await download(asset, mkdtempSync(join2(tmpdir(), "anvc-desktop-")));
-  if (process.platform === "darwin") {
-    spawn("open", [file], { detached: true, stdio: "ignore" }).unref();
-    return `Opened ${asset.name}. Drag anvc to Applications in the window that opened.`;
-  }
+  const into = mkdtempSync(join2(tmpdir(), "anvc-desktop-"));
+  const said = installFile(await download(asset, into));
+  if (said === INSTALLED)
+    rmSync(into, { recursive: true, force: true });
+  return said;
+}
+function installFile(file, home = homedir2(), applications = "/Applications") {
   if (process.platform === "win32") {
-    spawn(file, [], { detached: true, stdio: "ignore" }).unref();
-    return `Started the installer, ${asset.name}. Follow it to finish.`;
+    return Bun.spawnSync([file, "/S"], { windowsHide: true }).success ? INSTALLED : `The installer stopped. To run it yourself: ${file}`;
   }
-  if (asset.name.endsWith(".deb")) {
-    const command = ["sudo", "apt", "install", "-y", file];
-    if (!process.stdin.isTTY) {
-      const windowed = which("pkexec") && (process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
-      if (windowed && Bun.spawnSync(["pkexec", "apt", "install", "-y", file], { stdout: "ignore", stderr: "ignore" }).success) {
-        return `Installed the desktop app from ${asset.name}. Reopen it to use the new version.`;
-      }
-      return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
+  const swapIn = (unpacked, at) => {
+    rmSync(at, { recursive: true, force: true });
+    renameSync(unpacked, at);
+  };
+  if (process.platform === "darwin") {
+    let folder = applications;
+    try {
+      accessSync(folder, constants.W_OK);
+    } catch {
+      folder = join2(home, "Applications");
     }
-    const p = Bun.spawnSync(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
-    return p.success ? `Installed the desktop app from ${asset.name}. It's in your app menu as anvc.` : `apt couldn't install it. To try again: ${command.join(" ")}`;
+    mkdirSync2(folder, { recursive: true });
+    const fresh = mkdtempSync(join2(folder, ".anvc-"));
+    const ok = Bun.spawnSync(["tar", "-xzf", file, "-C", fresh]).success && existsSync(join2(fresh, "anvc.app"));
+    if (ok)
+      swapIn(join2(fresh, "anvc.app"), join2(folder, "anvc.app"));
+    rmSync(fresh, { recursive: true, force: true });
+    return ok ? INSTALLED : `Couldn't unpack ${file} into ${folder}.`;
   }
-  const bin = join2(homedir2(), ".local", "bin");
-  mkdirSync2(bin, { recursive: true });
-  copyFileSync(file, join2(bin, "anvc-desktop"));
-  chmodSync(join2(bin, "anvc-desktop"), 493);
-  return `Put the desktop app in ${join2(bin, "anvc-desktop")}. An AppImage needs FUSE; if it doesn't start, install libfuse2.`;
+  const dir = join2(home, ".local", "share", "anvc-desktop");
+  mkdirSync2(dirname2(dir), { recursive: true });
+  const fresh = mkdtempSync(`${dir}-`);
+  chmodSync(file, 493);
+  const ok = Bun.spawnSync([file, "--appimage-extract"], { cwd: fresh, stdout: "ignore", stderr: "ignore" }).success && existsSync(join2(fresh, "squashfs-root", "AppRun"));
+  if (ok)
+    swapIn(join2(fresh, "squashfs-root"), dir);
+  rmSync(fresh, { recursive: true, force: true });
+  if (!ok)
+    return `Couldn't unpack ${file}.`;
+  const bin = join2(home, ".local", "bin", "anvc-desktop");
+  mkdirSync2(dirname2(bin), { recursive: true });
+  rmSync(bin, { force: true });
+  writeFileSync2(bin, `#!/bin/sh
+exec ${shellWord(join2(dir, "AppRun"))} "$@"
+`, { mode: 493 });
+  const apps = join2(home, ".local", "share", "applications");
+  mkdirSync2(apps, { recursive: true });
+  writeFileSync2(join2(apps, "anvc.desktop"), [
+    "[Desktop Entry]",
+    "Name=anvc",
+    "Comment=The anvc work log as a desktop app",
+    `Exec="${bin.replace(/["`$\\]/g, "\\\\$&")}"`,
+    `Icon=${join2(dir, "anvc-desktop.png")}`,
+    "StartupWMClass=anvc-desktop",
+    "Terminal=false",
+    "Type=Application",
+    ""
+  ].join(`
+`));
+  return INSTALLED;
 }
 
 // protocol/version.ts
@@ -558,7 +592,7 @@ function checkDaily() {
     if (existsSync2(file) && Date.now() - statSync(file).mtimeMs < 86400000)
       return;
     save({ ...readUpdate() ?? { behind: 0, changes: [] }, checked: new Date().toISOString() });
-    spawn2("bun", [CLI, "update", "--check"], { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {}).unref();
+    spawn("bun", [CLI, "update", "--check"], { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {}).unref();
   } catch {}
 }
 function updateLine(state) {
@@ -856,16 +890,16 @@ function setLocalOnly(repo, on) {
     throw new Error("not a git repository");
   const off = marker(repo, "local-off");
   if (!on) {
-    rmSync(path, { force: true });
+    rmSync2(path, { force: true });
     if (readDefaults().localOnly) {
-      mkdirSync3(dirname2(off), { recursive: true });
+      mkdirSync3(dirname3(off), { recursive: true });
       writeFileSync3(off, `Local only is off here, whatever the default.
 `);
     }
     return { unset: 0 };
   }
-  rmSync(off, { force: true });
-  mkdirSync3(dirname2(path), { recursive: true });
+  rmSync2(off, { force: true });
+  mkdirSync3(dirname3(path), { recursive: true });
   writeFileSync3(path, `Local only since ${new Date().toISOString()}. Nothing ANVC keeps is pushed or fetched.
 `);
   let unset = 0;
@@ -2266,12 +2300,12 @@ function ingest(repo, events, opts = {}) {
 // protocol/activity.ts
 import { appendFileSync, mkdirSync as mkdirSync4 } from "fs";
 import { homedir as homedir5 } from "os";
-import { basename as basename2, dirname as dirname3, join as join7 } from "path";
+import { basename as basename2, dirname as dirname4, join as join7 } from "path";
 var dir = () => process.env.ANVC_ACTIVITY_DIR ?? join7(homedir5(), ".anvc", "activity");
 function repoRoot(cwd) {
   const common = gitOrNull(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (common?.endsWith("/.git"))
-    return dirname3(common);
+    return dirname4(common);
   return gitOrNull(cwd, ["rev-parse", "--show-toplevel"]) || null;
 }
 function appendDaily(dir, row) {
@@ -2934,8 +2968,8 @@ function whyLine(db, repo, path, line) {
 
 // protocol/results.ts
 import { createHash as createHash4 } from "crypto";
-import { closeSync as closeSync3, lstatSync, mkdirSync as mkdirSync8, openSync as openSync3, readdirSync as readdirSync2, readFileSync as readFileSync6, readSync as readSync3, rmSync as rmSync2, statSync as statSync4, writeFileSync as writeFileSync6 } from "fs";
-import { dirname as dirname5, join as join12, resolve as resolve4 } from "path";
+import { closeSync as closeSync3, lstatSync, mkdirSync as mkdirSync8, openSync as openSync3, readdirSync as readdirSync2, readFileSync as readFileSync6, readSync as readSync3, rmSync as rmSync3, statSync as statSync4, writeFileSync as writeFileSync6 } from "fs";
+import { dirname as dirname6, join as join12, resolve as resolve4 } from "path";
 
 // protocol/retire.ts
 function headAnchor(repo) {
@@ -3152,7 +3186,7 @@ function runFiles(command, cwd, repo) {
 
 // protocol/runlog.ts
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync7 } from "fs";
-import { dirname as dirname4, join as join11 } from "path";
+import { dirname as dirname5, join as join11 } from "path";
 var runsDir = (repo) => join11(captureRoot(), "runs", repoKey(repo));
 var runsFiles = (repo) => jsonl(runsDir(repo));
 
@@ -3244,7 +3278,7 @@ async function trackRun(command, cwd = process.cwd()) {
     } catch {}
   }
   const file = join11(runsDir(repo), `${row.ts.toString().slice(0, 10)}.jsonl`);
-  mkdirSync7(dirname4(file), { recursive: true, mode: 448 });
+  mkdirSync7(dirname5(file), { recursive: true, mode: 448 });
   appendFileSync2(file, `${JSON.stringify(row)}
 `, { mode: 384 });
   return { code, logged: true, files };
@@ -3275,7 +3309,7 @@ var everywhereDataMode = () => readMode(everywhereFile()) ?? DEFAULT_DATA_MODE;
 function clearProjectDataMode(repo) {
   const file = projectFile(repo);
   if (file)
-    rmSync2(file, { force: true });
+    rmSync3(file, { force: true });
 }
 function setDataMode(repo, mode) {
   if (!Object.hasOwn(DATA_MODES, mode))
@@ -3340,7 +3374,7 @@ function savePrints() {
     return;
   const entries = [...cached.entries()].slice(-5000);
   try {
-    mkdirSync8(dirname5(printsFile()), { recursive: true });
+    mkdirSync8(dirname6(printsFile()), { recursive: true });
     writeFileSync6(printsFile(), JSON.stringify(Object.fromEntries(entries)));
   } catch {}
 }
@@ -4286,8 +4320,8 @@ function withoutMoves(repo, lines) {
 }
 
 // protocol/goals.ts
-import { existsSync as existsSync7, mkdirSync as mkdirSync9, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "fs";
-import { dirname as dirname6 } from "path";
+import { existsSync as existsSync7, mkdirSync as mkdirSync9, rmSync as rmSync4, writeFileSync as writeFileSync7 } from "fs";
+import { dirname as dirname7 } from "path";
 var GOAL_LABELS = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped" };
 var approvalOn = (repo) => {
   const path = marker(repo, "approve-goals");
@@ -4298,10 +4332,10 @@ function setApproval(repo, on) {
   if (!path)
     throw new Error("not a git repository");
   if (!on) {
-    rmSync3(path, { force: true });
+    rmSync4(path, { force: true });
     return;
   }
-  mkdirSync9(dirname6(path), { recursive: true });
+  mkdirSync9(dirname7(path), { recursive: true });
   writeFileSync7(path, `Goals an agent adds or changes wait for the person to accept them.
 `);
 }
@@ -5622,10 +5656,10 @@ function statusCommand(repo, positional, argv) {
 }
 
 // protocol/open.ts
-import { spawn as spawn3 } from "child_process";
+import { spawn as spawn2 } from "child_process";
 import { randomBytes as randomBytes2, timingSafeEqual } from "crypto";
 import { closeSync as closeSync4, existsSync as existsSync9, mkdirSync as mkdirSync10, openSync as openSync4, readFileSync as readFileSync11 } from "fs";
-import { dirname as dirname7, join as join14 } from "path";
+import { dirname as dirname8, join as join14 } from "path";
 var CLONE_SERVER = join14(HOME, "server", "inspect.ts");
 var SERVER = existsSync9(CLONE_SERVER) ? CLONE_SERVER : join14(HOME, "dist", "inspect.js");
 var PORTS = "7451-7470";
@@ -5660,10 +5694,10 @@ async function ask(port, top) {
 }
 async function startServer(top, ports) {
   const log = place2(top, "log");
-  mkdirSync10(dirname7(log), { recursive: true, mode: 448 });
+  mkdirSync10(dirname8(log), { recursive: true, mode: 448 });
   const out = openSync4(log, "w", 384);
-  const child = spawn3(process.execPath, [SERVER, "--repo", top, "--port", ports], {
-    cwd: dirname7(SERVER),
+  const child = spawn2(process.execPath, [SERVER, "--repo", top, "--port", ports], {
+    cwd: dirname8(SERVER),
     detached: true,
     stdio: ["ignore", out, out],
     windowsHide: true,
@@ -5687,19 +5721,18 @@ function openBrowser(link) {
   if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY)
     return false;
   const [name, ...args] = process.platform === "darwin" ? ["open", link] : process.platform === "win32" ? ["cmd", "/c", "start", "", link] : ["xdg-open", link];
-  const command = which2(name);
+  const command = which(name);
   if (!command)
     return false;
-  spawn3(command, args, { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {}).unref();
+  spawn2(command, args, { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {}).unref();
   return true;
 }
-var which2 = (name) => Bun.which(name, { PATH: process.env.PATH ?? "" });
 function openDesktop(folder) {
   const top = projectOf(folder);
   const app = desktopCommand();
   if (!app)
     throw new Error("The desktop app isn't installed. `anvc desktop install` installs it from the latest release.");
-  spawn3(app[0], [...app.slice(1), "--repo", top], { detached: true, stdio: "ignore" }).unref();
+  spawn2(app[0], [...app.slice(1), "--repo", top], { detached: true, stdio: "ignore" }).unref();
   return top;
 }
 async function openWorkLog(folder, options = {}) {
@@ -5729,7 +5762,7 @@ async function openWorkLog(folder, options = {}) {
 // protocol/sources.ts
 import { appendFileSync as appendFileSync3, mkdirSync as mkdirSync11 } from "fs";
 import { createHash as createHash5, randomBytes as randomBytes3 } from "crypto";
-import { dirname as dirname8, join as join15, resolve as resolve7 } from "path";
+import { dirname as dirname9, join as join15, resolve as resolve7 } from "path";
 var MAX_SOURCE = 64 * 1024;
 var MAX_ASKED = 2000;
 var MAX_READ = 4 * 1024 * 1024;
@@ -5819,7 +5852,7 @@ ${text ?? ""}`).digest("hex").slice(0, 16);
   });
   if (!rows.length)
     return 0;
-  mkdirSync11(dirname8(file), { recursive: true, mode: 448 });
+  mkdirSync11(dirname9(file), { recursive: true, mode: 448 });
   appendFileSync3(file, rows.map((r) => JSON.stringify(r)).join(`
 `) + `
 `, { mode: 384 });

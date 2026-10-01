@@ -1,8 +1,10 @@
 name: Desktop app
 
 # Builds the desktop app for macOS, Windows and Linux when a release is
-# tagged, and attaches the installers to a draft GitHub release: .dmg for
-# macOS, .msi and .exe for Windows, .deb and .AppImage for Linux. The plugin
+# tagged, and attaches the installers to a draft GitHub release: .dmg and
+# .app.tar.gz for macOS, .msi and .exe for Windows, .deb and .AppImage for
+# Linux. anvc desktop install uses the .app.tar.gz, the .exe and the AppImage,
+# which need no password. The plugin
 # and the CLI don't need it; it's another way to open the same work log.
 # Nothing is signed yet, so macOS and Windows warn the first time it opens.
 on:

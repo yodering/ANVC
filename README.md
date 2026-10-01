@@ -114,10 +114,12 @@ disk.
 
 The work log also comes as an app for macOS, Windows and Linux. `bun run
 setup` offers to install it, and from a clone `bun run anvc desktop install`
-does it any time. To install it yourself, download the installer for your
-system from the [latest release](https://github.com/yodering/anvc/releases/latest):
-the `.dmg` for macOS on Apple silicon, the `-setup.exe` for Windows, and the
-`.deb` or `.AppImage` for Linux. It isn't signed yet. The first time it opens,
+does it any time. Either installs it for you alone, so neither asks for a
+password, and your agent offers each new version. To install it yourself,
+download the installer for your system from the
+[latest release](https://github.com/yodering/anvc/releases/latest): the
+`.dmg` for macOS on Apple silicon, the `-setup.exe` for Windows, and the `.deb`
+or `.AppImage` for Linux. It isn't signed yet. The first time it opens,
 macOS blocks it until you choose Open Anyway in System Settings › Privacy &
 Security, and Windows asks you to choose More info › Run anyway.
 

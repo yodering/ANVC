@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { gitOrNull } from "./git";
 import { readJson, repoKey, samePath, stateRoot, tokenProof, uiToken, writeJson } from "./rawlog";
 import { HOME } from "./version";
-import { desktopCommand } from "./desktop";
+import { desktopCommand, which } from "./desktop";
 
 /**
  * The clone's server, or in the plugin, the bundle of it. It runs from its
@@ -106,9 +106,6 @@ function openBrowser(link: string): boolean {
   spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => { /* nothing opened */ }).unref();
   return true;
 }
-
-/** A command on the PATH as it is now; Bun.which alone reads the one this process started with. */
-const which = (name: string) => Bun.which(name, { PATH: process.env.PATH ?? "" });
 
 /** Starts the desktop app on the project a folder is in, and returns the project. */
 export function openDesktop(folder: string): string {

@@ -312,7 +312,7 @@ for (let i = 0; i < steps.length;) {
 
 const preset = localOnly() ? "private-repo" : sharing;
 
-/** Downloads and starts this computer's installer. A failure is reported and setup carries on. */
+/** Downloads and installs the desktop app for this computer. A failure is reported and setup carries on. */
 async function installApp(): Promise<void> {
   if (!desktop) return;
   log.step("Downloading the desktop app from the latest release");
