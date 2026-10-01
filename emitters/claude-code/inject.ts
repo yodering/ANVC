@@ -64,6 +64,7 @@ import { handoff } from "../../protocol/handoff";
 import { changedLines } from "../../protocol/drift";
 import { checkResult, dataMode, describe, listResults, sameNumber, type ResultView } from "../../protocol/results";
 import { catchUpOffer, dataFiles, dataLine, holdsNumbers, isDataPath, RECORD_RESULT, writtenData } from "../../protocol/catchup";
+import { readUpdate, updateOffer } from "../../protocol/version";
 import { cachedCheck, runnable, verifyCached } from "../../protocol/recheck";
 import { autosave } from "../../protocol/autosave";
 import { readAssist, type Moment } from "../../protocol/assist";
@@ -534,6 +535,8 @@ try {
       // Once per project, the first time ANVC runs where work happened before it.
       const offer = catchUpOffer(root, session, records);
       if (offer) say(offer.text, [], offer.said);
+      const update = updateOffer(readUpdate());
+      if (update) say(update.text, [], update.said);
       seen.add("@session");
     }
   } else if (event === "UserPromptSubmit") {

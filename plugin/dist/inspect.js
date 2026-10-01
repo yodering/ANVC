@@ -92207,6 +92207,31 @@ import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } fr
 import { homedir as homedir3 } from "os";
 import { delimiter, join as join3, resolve as resolve2 } from "path";
 
+// protocol/args.ts
+function flag(argv, name, fallback) {
+  const i = argv.indexOf(`--${name}`);
+  const value = i >= 0 ? argv[i + 1] : undefined;
+  return value && !value.startsWith("--") ? value : fallback;
+}
+var has = (argv, name) => argv.includes(`--${name}`);
+function positionals(argv) {
+  const out = [];
+  for (let i = 0;i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--")) {
+      if (!a.includes("=") && argv[i + 1] && !argv[i + 1].startsWith("--"))
+        i++;
+      continue;
+    }
+    out.push(a);
+  }
+  return out;
+}
+var textArg = (args, key) => typeof args[key] === "string" && args[key].trim() ? args[key].trim() : undefined;
+var positional = (argv) => positionals(argv)[0];
+var shellWord = (w) => /^[\w@%+=:,./-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`;
+var cmdWord = (w) => /^[\w@+=:,./\\-]+$/.test(w) ? w : `"${w.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`.replace(/[()[\]%!^"`<>&|;, *?]/g, "^$&");
+
 // protocol/desktop.ts
 import { spawn } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync as mkdirSync2, mkdtempSync, writeFileSync as writeFileSync2 } from "fs";
@@ -92283,8 +92308,13 @@ async function installDesktop(repo = RELEASES) {
   }
   if (asset.name.endsWith(".deb")) {
     const command = ["sudo", "apt", "install", "-y", file];
-    if (!process.stdin.isTTY)
+    if (!process.stdin.isTTY) {
+      const windowed = which("pkexec") && (process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+      if (windowed && Bun.spawnSync(["pkexec", "apt", "install", "-y", file], { stdout: "ignore", stderr: "ignore" }).success) {
+        return `Installed the desktop app from ${asset.name}. Reopen it to use the new version.`;
+      }
       return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
+    }
     const p = Bun.spawnSync(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     return p.success ? `Installed the desktop app from ${asset.name}. It's in your app menu as anvc.` : `apt couldn't install it. To try again: ${command.join(" ")}`;
   }
@@ -92400,6 +92430,30 @@ function updateLine(state) {
   if (!state || !state.behind)
     return null;
   return `ANVC has ${state.behind} update${state.behind === 1 ? "" : "s"} ready. Run: bun run anvc update`;
+}
+var desktopFile = () => join3(stateHome(), "desktop.json");
+function updateOffer(state) {
+  const latest = state?.latest;
+  if (!latest)
+    return null;
+  const file = join3(stateHome(), "update-offer.json");
+  if (readJson(file, {}).offered === latest)
+    return null;
+  const desktop = readJson(desktopFile(), {}).version;
+  const steps = [
+    Bun.semver.order(latest, version()) > 0 ? "`claude plugin marketplace update anvc && claude plugin update anvc@anvc`, after which they start a new session" : null,
+    desktop && Bun.semver.order(latest, desktop) > 0 ? `\`bun ${shellWord(CLI)} desktop install\` for the desktop app, which is ${desktop}` : null
+  ].filter(Boolean);
+  if (!steps.length)
+    return null;
+  return {
+    text: `anvc: ANVC ${latest} is out. Ask the person whether to update, and if they say yes, run ${steps.join(", and ")}.`,
+    said: () => {
+      try {
+        writeJson(file, { offered: latest });
+      } catch {}
+    }
+  };
 }
 function pullUpdate(home = HOME) {
   const before = gitOrNull(home, ["rev-parse", "HEAD"]) ?? "";
@@ -95163,33 +95217,6 @@ function whence(repo, text, limit = 8, scope = {}, context = {}) {
 // protocol/goals.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync7, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "fs";
 import { dirname as dirname6 } from "path";
-
-// protocol/args.ts
-function flag(argv, name, fallback) {
-  const i = argv.indexOf(`--${name}`);
-  const value = i >= 0 ? argv[i + 1] : undefined;
-  return value && !value.startsWith("--") ? value : fallback;
-}
-var has = (argv, name) => argv.includes(`--${name}`);
-function positionals(argv) {
-  const out = [];
-  for (let i = 0;i < argv.length; i++) {
-    const a = argv[i];
-    if (a.startsWith("--")) {
-      if (!a.includes("=") && argv[i + 1] && !argv[i + 1].startsWith("--"))
-        i++;
-      continue;
-    }
-    out.push(a);
-  }
-  return out;
-}
-var textArg = (args, key) => typeof args[key] === "string" && args[key].trim() ? args[key].trim() : undefined;
-var positional = (argv) => positionals(argv)[0];
-var shellWord = (w) => /^[\w@%+=:,./-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`;
-var cmdWord = (w) => /^[\w@+=:,./\\-]+$/.test(w) ? w : `"${w.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`.replace(/[()[\]%!^"`<>&|;, *?]/g, "^$&");
-
-// protocol/goals.ts
 var GOAL_LABELS = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped" };
 var approvalOn = (repo) => {
   const path = marker(repo, "approve-goals");
@@ -99830,3 +99857,7 @@ console.log(`anvc on http://127.0.0.1:${server2.port}`);
 console.log(`  repository: ${repo}`);
 if (process.env.ANVC_UI_TOKEN)
   console.log(`anvc listening 127.0.0.1:${server2.port}`);
+if (managedBy() === "desktop")
+  try {
+    writeJson(desktopFile(), { version: version() });
+  } catch {}

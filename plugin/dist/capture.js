@@ -567,6 +567,31 @@ import { existsSync as existsSync3, readFileSync as readFileSync2, statSync } fr
 import { homedir as homedir4 } from "os";
 import { delimiter, join as join5, resolve as resolve2 } from "path";
 
+// protocol/args.ts
+function flag(argv, name, fallback) {
+  const i = argv.indexOf(`--${name}`);
+  const value = i >= 0 ? argv[i + 1] : undefined;
+  return value && !value.startsWith("--") ? value : fallback;
+}
+var has = (argv, name) => argv.includes(`--${name}`);
+function positionals(argv) {
+  const out = [];
+  for (let i = 0;i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--")) {
+      if (!a.includes("=") && argv[i + 1] && !argv[i + 1].startsWith("--"))
+        i++;
+      continue;
+    }
+    out.push(a);
+  }
+  return out;
+}
+var textArg = (args, key) => typeof args[key] === "string" && args[key].trim() ? args[key].trim() : undefined;
+var positional = (argv) => positionals(argv)[0];
+var shellWord = (w) => /^[\w@%+=:,./-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`;
+var cmdWord = (w) => /^[\w@+=:,./\\-]+$/.test(w) ? w : `"${w.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`.replace(/[()[\]%!^"`<>&|;, *?]/g, "^$&");
+
 // protocol/desktop.ts
 import { spawn } from "child_process";
 import { chmodSync, copyFileSync, existsSync as existsSync2, mkdirSync as mkdirSync4, mkdtempSync, writeFileSync as writeFileSync3 } from "fs";
@@ -643,8 +668,13 @@ async function installDesktop(repo = RELEASES) {
   }
   if (asset.name.endsWith(".deb")) {
     const command = ["sudo", "apt", "install", "-y", file];
-    if (!process.stdin.isTTY)
+    if (!process.stdin.isTTY) {
+      const windowed = which("pkexec") && (process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+      if (windowed && Bun.spawnSync(["pkexec", "apt", "install", "-y", file], { stdout: "ignore", stderr: "ignore" }).success) {
+        return `Installed the desktop app from ${asset.name}. Reopen it to use the new version.`;
+      }
       return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
+    }
     const p = Bun.spawnSync(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     return p.success ? `Installed the desktop app from ${asset.name}. It's in your app menu as anvc.` : `apt couldn't install it. To try again: ${command.join(" ")}`;
   }
@@ -760,6 +790,30 @@ function updateLine(state) {
   if (!state || !state.behind)
     return null;
   return `ANVC has ${state.behind} update${state.behind === 1 ? "" : "s"} ready. Run: bun run anvc update`;
+}
+var desktopFile = () => join5(stateHome(), "desktop.json");
+function updateOffer(state) {
+  const latest = state?.latest;
+  if (!latest)
+    return null;
+  const file = join5(stateHome(), "update-offer.json");
+  if (readJson(file, {}).offered === latest)
+    return null;
+  const desktop = readJson(desktopFile(), {}).version;
+  const steps = [
+    Bun.semver.order(latest, version()) > 0 ? "`claude plugin marketplace update anvc && claude plugin update anvc@anvc`, after which they start a new session" : null,
+    desktop && Bun.semver.order(latest, desktop) > 0 ? `\`bun ${shellWord(CLI)} desktop install\` for the desktop app, which is ${desktop}` : null
+  ].filter(Boolean);
+  if (!steps.length)
+    return null;
+  return {
+    text: `anvc: ANVC ${latest} is out. Ask the person whether to update, and if they say yes, run ${steps.join(", and ")}.`,
+    said: () => {
+      try {
+        writeJson(file, { offered: latest });
+      } catch {}
+    }
+  };
 }
 function pullUpdate(home = HOME) {
   const before = gitOrNull(home, ["rev-parse", "HEAD"]) ?? "";
@@ -3299,31 +3353,6 @@ function whence(repo, text, limit = 8, scope = {}, context = {}) {
 // protocol/catchup.ts
 import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync9, readFileSync as readFileSync9, readdirSync as readdirSync5, statSync as statSync7 } from "fs";
 import { join as join14 } from "path";
-
-// protocol/args.ts
-function flag(argv, name, fallback) {
-  const i = argv.indexOf(`--${name}`);
-  const value = i >= 0 ? argv[i + 1] : undefined;
-  return value && !value.startsWith("--") ? value : fallback;
-}
-var has = (argv, name) => argv.includes(`--${name}`);
-function positionals(argv) {
-  const out = [];
-  for (let i = 0;i < argv.length; i++) {
-    const a = argv[i];
-    if (a.startsWith("--")) {
-      if (!a.includes("=") && argv[i + 1] && !argv[i + 1].startsWith("--"))
-        i++;
-      continue;
-    }
-    out.push(a);
-  }
-  return out;
-}
-var textArg = (args, key) => typeof args[key] === "string" && args[key].trim() ? args[key].trim() : undefined;
-var positional = (argv) => positionals(argv)[0];
-var shellWord = (w) => /^[\w@%+=:,./-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`;
-var cmdWord = (w) => /^[\w@+=:,./\\-]+$/.test(w) ? w : `"${w.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`.replace(/[()[\]%!^"`<>&|;, *?]/g, "^$&");
 
 // protocol/backfill.ts
 import { existsSync as existsSync8, readdirSync as readdirSync4, readFileSync as readFileSync8, statSync as statSync6 } from "fs";

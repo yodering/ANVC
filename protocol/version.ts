@@ -18,6 +18,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
+import { shellWord } from "./args";
 import { gitOrNull } from "./git";
 import { RELEASES } from "./desktop";
 import { isRepo, readJson, writeJson } from "./rawlog";
@@ -209,6 +210,32 @@ export function updateLine(state: UpdateState | null): string | null {
   }
   if (!state || !state.behind) return null;
   return `ANVC has ${state.behind} update${state.behind === 1 ? "" : "s"} ready. Run: bun run anvc update`;
+}
+
+/** Where the desktop app says which version it is, each time it starts. */
+export const desktopFile = () => join(stateHome(), "desktop.json");
+
+/**
+ * What an agent is told at a session start once a newer ANVC is out: to ask
+ * the person whether to update, the desktop app included, since nobody
+ * remembers to reinstall an app. Once per release for the computer, so four
+ * open sessions don't each ask.
+ */
+export function updateOffer(state: UpdateState | null): { text: string; said: () => void } | null {
+  const latest = state?.latest;
+  if (!latest) return null;
+  const file = join(stateHome(), "update-offer.json");
+  if (readJson<{ offered?: string }>(file, {}).offered === latest) return null;
+  const desktop = readJson<{ version?: string }>(desktopFile(), {}).version;
+  const steps = [
+    Bun.semver.order(latest, version()) > 0 ? "`claude plugin marketplace update anvc && claude plugin update anvc@anvc`, after which they start a new session" : null,
+    desktop && Bun.semver.order(latest, desktop) > 0 ? `\`bun ${shellWord(CLI)} desktop install\` for the desktop app, which is ${desktop}` : null,
+  ].filter(Boolean);
+  if (!steps.length) return null;
+  return {
+    text: `anvc: ANVC ${latest} is out. Ask the person whether to update, and if they say yes, run ${steps.join(", and ")}.`,
+    said: () => { try { writeJson(file, { offered: latest }); } catch { /* asked again next time */ } },
+  };
 }
 
 /**

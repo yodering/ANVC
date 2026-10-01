@@ -37,7 +37,7 @@ import { installPrePush, removePrePush } from "../protocol/prepush";
 import { forRepo, retirements } from "../protocol/query";
 import { addRule, changeRule, listRules, parseApplies, parseFrom, removeRule, ruleText } from "../protocol/rules";
 import { personDecide } from "../protocol/retire";
-import { checkDaily, CLI, HOME, hooksBehind, installs, managedBy, readUpdate, stateHome, update, version } from "../protocol/version";
+import { checkDaily, CLI, desktopFile, HOME, hooksBehind, installs, managedBy, readUpdate, stateHome, update, version } from "../protocol/version";
 import { repoRoot } from "../protocol/activity";
 import { exportPolicy, FIELDS, importPolicy, PRESETS, readPolicy, writePolicy, type Policy } from "../protocol/policy";
 import { folders, setFolder } from "../protocol/folders";
@@ -574,3 +574,6 @@ console.log(`  repository: ${repo}`);
 // The desktop app passes a token and waits for this line from its own child
 // before it points the window at the port.
 if (process.env.ANVC_UI_TOKEN) console.log(`anvc listening 127.0.0.1:${server.port}`);
+// Which desktop app is installed, for the agent's update offer: it can't
+// tell from outside on every system.
+if (managedBy() === "desktop") try { writeJson(desktopFile(), { version: version() }); } catch { /* offered without it */ }

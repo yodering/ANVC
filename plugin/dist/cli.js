@@ -578,8 +578,13 @@ async function installDesktop(repo = RELEASES) {
   }
   if (asset.name.endsWith(".deb")) {
     const command = ["sudo", "apt", "install", "-y", file];
-    if (!process.stdin.isTTY)
+    if (!process.stdin.isTTY) {
+      const windowed = which("pkexec") && (process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+      if (windowed && Bun.spawnSync(["pkexec", "apt", "install", "-y", file], { stdout: "ignore", stderr: "ignore" }).success) {
+        return `Installed the desktop app from ${asset.name}. Reopen it to use the new version.`;
+      }
       return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
+    }
     const p = Bun.spawnSync(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     return p.success ? `Installed the desktop app from ${asset.name}. It's in your app menu as anvc.` : `apt couldn't install it. To try again: ${command.join(" ")}`;
   }
@@ -695,6 +700,30 @@ function updateLine(state) {
   if (!state || !state.behind)
     return null;
   return `ANVC has ${state.behind} update${state.behind === 1 ? "" : "s"} ready. Run: bun run anvc update`;
+}
+var desktopFile = () => join4(stateHome(), "desktop.json");
+function updateOffer(state) {
+  const latest = state?.latest;
+  if (!latest)
+    return null;
+  const file = join4(stateHome(), "update-offer.json");
+  if (readJson(file, {}).offered === latest)
+    return null;
+  const desktop = readJson(desktopFile(), {}).version;
+  const steps = [
+    Bun.semver.order(latest, version()) > 0 ? "`claude plugin marketplace update anvc && claude plugin update anvc@anvc`, after which they start a new session" : null,
+    desktop && Bun.semver.order(latest, desktop) > 0 ? `\`bun ${shellWord(CLI)} desktop install\` for the desktop app, which is ${desktop}` : null
+  ].filter(Boolean);
+  if (!steps.length)
+    return null;
+  return {
+    text: `anvc: ANVC ${latest} is out. Ask the person whether to update, and if they say yes, run ${steps.join(", and ")}.`,
+    said: () => {
+      try {
+        writeJson(file, { offered: latest });
+      } catch {}
+    }
+  };
 }
 function pullUpdate(home = HOME) {
   const before = gitOrNull(home, ["rev-parse", "HEAD"]) ?? "";

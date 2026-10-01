@@ -114,8 +114,15 @@ export async function installDesktop(repo: string = RELEASES): Promise<string> {
   }
   if (asset.name.endsWith(".deb")) {
     const command = ["sudo", "apt", "install", "-y", file];
-    // sudo asks for the password in the terminal; an agent's shell has none.
-    if (!process.stdin.isTTY) return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
+    // sudo asks for the password in the terminal, and an agent's shell has
+    // none. On a desktop, pkexec asks in a window instead.
+    if (!process.stdin.isTTY) {
+      const windowed = which("pkexec") && (process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+      if (windowed && Bun.spawnSync(["pkexec", "apt", "install", "-y", file], { stdout: "ignore", stderr: "ignore" }).success) {
+        return `Installed the desktop app from ${asset.name}. Reopen it to use the new version.`;
+      }
+      return `Downloaded ${asset.name}. To install it, run: ${command.join(" ")}`;
+    }
     const p = Bun.spawnSync(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     return p.success ? `Installed the desktop app from ${asset.name}. It's in your app menu as anvc.` : `apt couldn't install it. To try again: ${command.join(" ")}`;
   }
