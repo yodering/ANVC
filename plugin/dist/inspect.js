@@ -92142,7 +92142,7 @@ function collapse(text) {
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.3",
+  version: "0.4.4",
   private: true,
   type: "module",
   scripts: {
@@ -99373,7 +99373,8 @@ var listen = (port) => Bun.serve({
     const t = url.searchParams.get("t");
     if (t !== null && !api) {
       url.searchParams.delete("t");
-      const moved = new Response(null, { status: 302, headers: { location: url.pathname + url.search } });
+      const to = url.pathname + url.search;
+      const moved = new Response(`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${to.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` + `<script>location.replace(${JSON.stringify(to).replace(/</g, "\\u003c")})</script>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" } });
       if (signedIn(t) || redeem(t))
         moved.headers.set("set-cookie", `anvc_ui=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
       return unframed(moved);

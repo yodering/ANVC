@@ -63,7 +63,7 @@ function repoPath(path: string): string {
     return below(samePath(repo), existsSync(path) ? samePath(path) : path) ?? path;
   }
   if (existsSync(resolve(repo, path))) return path;
-  const fromHere = below(repo, resolve(process.cwd(), path));
+  const fromHere = below(samePath(repo), resolve(samePath(process.cwd()), path));
   return fromHere !== null && existsSync(resolve(repo, fromHere)) ? fromHere : path;
 }
 

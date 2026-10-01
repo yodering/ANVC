@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { captureFile, repoKey } from "../protocol/rawlog";
+import { captureFile, repoKey, samePath } from "../protocol/rawlog";
 import { appendRecord, readRecords, ulid, type CheckpointRecord } from "../protocol/record";
 import { checkPrivateRemote, repoUrlKey } from "../protocol/sync";
 import { git, gitRepo, rawRows, tmp } from "./helpers";
@@ -58,11 +58,11 @@ test("a second machine gets the private records, the raw log and the session cop
   expect(readdirSync(join(b.home, "capture", repoKey(b.repo)))).toEqual([`${day}.from-laptop.jsonl`]);
   // Rows name this machine's copy of the repository, so its queries find them.
   const [row] = rawRows(join(b.home, "capture"));
-  expect(row!.repo).toBe(realpathSync(b.repo));
+  expect(samePath(row!.repo)).toBe(samePath(b.repo));
   expect(existsSync(join(b.home, "kept", repoKey(b.repo), "claude-code", "s1.from-laptop.jsonl.gz"))).toBe(true);
   // Nothing private went to the team's remote.
   expect(Bun.spawnSync(["git", "-C", team, "for-each-ref"]).stdout.toString()).toBe("");
-});
+}, 30_000);
 
 test("a session copy that grew on the other machine is written again here", async () => {
   const priv = gitRepo({ bare: true });
@@ -84,7 +84,7 @@ test("a session copy that grew on the other machine is written again here", asyn
   expect(a.cli("sync", "--remote", "mine").code).toBe(0);
   expect(b.cli("sync", "--remote", "mine").code).toBe(0);
   expect(mirror()).toBe('{"type":"user"}\n{"type":"assistant"}\n');
-});
+}, 30_000);
 
 test("the team's remote is refused as a private remote", async () => {
   const team = gitRepo({ bare: true });

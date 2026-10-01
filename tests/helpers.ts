@@ -8,7 +8,7 @@ import { onTestFinished } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { captureFile, captureFiles } from "../protocol/rawlog";
+import { captureFile, captureFiles, samePath } from "../protocol/rawlog";
 import { appendRecord, ulid, type CheckpointRecord } from "../protocol/record";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -24,7 +24,8 @@ const ROOT = resolve(import.meta.dir, "..");
  */
 export function tmp(prefix = "anvc-"): string {
   const made = mkdtempSync(join(tmpdir(), prefix));
-  const dir = process.platform === "win32" ? realpathSync(made) : made;
+  // The native call spells out a short name like RUNNER~1, as git and ANVC do.
+  const dir = process.platform === "win32" ? realpathSync.native(made) : made;
   onTestFinished(() => { try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch { /* still open */ } });
   return dir;
 }
@@ -89,7 +90,7 @@ export function writeCapture(repo: string, rows: object[], root?: string): void 
   mkdirSync(dirname(file), { recursive: true });
   // The capture hook names the repository as git does, with symlinks resolved,
   // as they are in macOS's temp folder.
-  const top = realpathSync(repo);
+  const top = samePath(repo);
   appendFileSync(file, rows.map((r) => JSON.stringify({
     anvc_capture: 0, event: "PostToolUse", ts: new Date().toISOString(), session_id: "s", agent: "claude-code",
     cwd: top, repo: top, tool: null, path: null, bytes: null, command: null, prompt: null, ok: null, ...r,

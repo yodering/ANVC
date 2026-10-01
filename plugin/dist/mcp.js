@@ -280,7 +280,7 @@ function collapse(text) {
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.3",
+  version: "0.4.4",
   private: true,
   type: "module",
   scripts: {
@@ -5835,7 +5835,7 @@ function repoPath(path) {
   }
   if (existsSync10(resolve8(repo, path)))
     return path;
-  const fromHere = below(repo, resolve8(process.cwd(), path));
+  const fromHere = below(samePath(repo), resolve8(samePath(process.cwd()), path));
   return fromHere !== null && existsSync10(resolve8(repo, fromHere)) ? fromHere : path;
 }
 var agentName2 = process.env.ANVC_AGENT ?? (process.env.CLAUDE_CODE_SESSION_ID ? "claude-code" : "unknown");

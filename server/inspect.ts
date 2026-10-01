@@ -166,10 +166,22 @@ const listen = (port: number) => Bun.serve({
     // `anvc open` starts a browser with carries a code. Either becomes a
     // cookie and leaves the address bar, so it isn't left on screen or in the
     // history. A wrong one is dropped the same way.
+    //
+    // A page moves on to the address, where a redirect used to. The desktop
+    // app's window comes from its own origin, so a browser counts its first
+    // request here as cross-site, and a SameSite=Strict cookie isn't sent on
+    // a redirect from that request: the app showed the sign-in page. The
+    // page's own move is same-site, and location.replace keeps the token out
+    // of the history as the redirect did.
     const t = url.searchParams.get("t");
     if (t !== null && !api) {
       url.searchParams.delete("t");
-      const moved = new Response(null, { status: 302, headers: { location: url.pathname + url.search } });
+      const to = url.pathname + url.search;
+      const moved = new Response(
+        `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${to.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`
+          + `<script>location.replace(${JSON.stringify(to).replace(/</g, "\\u003c")})</script>`,
+        { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" } },
+      );
       if (signedIn(t) || redeem(t)) moved.headers.set("set-cookie", `anvc_ui=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
       return unframed(moved);
     }

@@ -97,7 +97,8 @@ test("uninstall --everywhere takes ANVC out of each agent's own config and keeps
   const dry = cli(repo, "uninstall", "--everywhere", "--dry-run");
   expect(dry.code).toBe(0);
   expect(read()).toEqual(before);
-  for (const f of files) expect(dry.out).toContain(`~/${f}`);
+  // On Windows the paths are written with \.
+  for (const f of files) expect(dry.out.replaceAll("\\", "/")).toContain(`~/${f}`);
 
   const { code, out } = cli(repo, "uninstall", "--everywhere");
   expect(code).toBe(0);

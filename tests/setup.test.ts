@@ -360,7 +360,8 @@ function snapshot(repo: string): Record<string, string> {
   for (const rel of readdirSync(repo, { recursive: true, encoding: "utf8" })) {
     if (rel === ".git" || rel.startsWith(".git/") || rel.startsWith(".git\\")) continue;
     const file = join(repo, rel);
-    if (statSync(file).isFile()) out[rel] = readFileSync(file, "utf8");
+    // Named with / on Windows too, as setup lists them.
+    if (statSync(file).isFile()) out[rel.replaceAll("\\", "/")] = readFileSync(file, "utf8");
   }
   for (const rel of [".git/info/exclude", ".git/hooks/pre-push"]) if (existsSync(join(repo, rel))) out[rel] = readFileSync(join(repo, rel), "utf8");
   out["git config"] = git(repo, "config", "--get-regexp", "^remote\\.");

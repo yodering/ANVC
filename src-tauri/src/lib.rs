@@ -127,7 +127,7 @@ fn open(app: &tauri::AppHandle, repo: PathBuf) -> Result<(), Box<dyn std::error:
         return Ok(());
     }
     let _ = window.set_title(&format!(
-        "ANVC — {}",
+        "ANVC | {}",
         repo.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
     ));
 

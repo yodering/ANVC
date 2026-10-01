@@ -188,8 +188,10 @@ test("the link's token becomes a cookie and leaves the address bar", async () =>
   try {
     const token = process.env.ANVC_UI_TOKEN!;
     const signIn = await fetch(`${origin}/?view=map&t=${token}`, { redirect: "manual" });
-    expect(signIn.status).toBe(302);
-    expect(signIn.headers.get("location")).toBe("/?view=map");
+    // A page that moves on, so the desktop app's first, cross-site request
+    // still ends signed in: a redirect from it doesn't send a Strict cookie.
+    expect(signIn.status).toBe(200);
+    expect(await signIn.text()).toContain('location.replace("/?view=map")');
     const cookie = signIn.headers.get("set-cookie")!;
     expect(cookie).toStartWith(`anvc_ui=${token};`);
     expect(cookie).toContain("HttpOnly");
@@ -200,8 +202,7 @@ test("the link's token becomes a cookie and leaves the address bar", async () =>
 
     // A wrong token leaves the address bar too, and signs nothing in.
     const wrong = await fetch(`${origin}/?t=wrong`, { redirect: "manual" });
-    expect(wrong.status).toBe(302);
-    expect(wrong.headers.get("location")).toBe("/");
+    expect(await wrong.text()).toContain('location.replace("/")');
     expect(wrong.headers.get("set-cookie")).toBeNull();
   } finally { stop(); }
 }, 60_000);

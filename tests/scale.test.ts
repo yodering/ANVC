@@ -10,12 +10,33 @@
 import { expect, test } from "bun:test";
 import { canonical, contentUlid, listRecords, readRecords, type CheckpointRecord } from "../protocol/record";
 import { deadEnds, openDeadEnds, tried, withIndex } from "../protocol/query";
-import { git, gitRepo } from "./helpers";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { git, gitRepo, tmp } from "./helpers";
+
+/**
+ * Writes the records' blobs and their refs in two git processes. One
+ * hash-object per record took over 120 s on Windows, where starting a process
+ * is slow, and the test measures reads, not writes.
+ */
+function writeRefs(repo: string, records: Array<[ref: string, record: CheckpointRecord]>): void {
+  const marks = join(tmp("anvc-marks-"), "marks");
+  const parts = records.flatMap(([, record], i) => {
+    const body = Buffer.from(canonical(record));
+    return [Buffer.from(`blob\nmark :${i + 1}\ndata ${body.length}\n`), body, Buffer.from("\n")];
+  });
+  const made = Bun.spawnSync(["git", "-C", repo, "fast-import", "--quiet", `--export-marks=${marks}`], { stdin: Buffer.concat(parts), stderr: "pipe" });
+  if (!made.success) throw new Error(`git fast-import failed: ${made.stderr}`);
+  const oid = new Map(readFileSync(marks, "utf8").trim().split("\n").map((line) => line.split(" ") as [string, string]));
+  const commands = records.map(([ref], i) => `create ${ref} ${oid.get(`:${i + 1}`)}`);
+  const refs = Bun.spawnSync(["git", "-C", repo, "update-ref", "--stdin"], { stdin: Buffer.from(`${commands.join("\n")}\n`), stderr: "pipe" });
+  if (!refs.success) throw new Error(`git update-ref failed: ${refs.stderr}`);
+}
 
 /** Writes `n` records the fast way, so the test measures reads, not writes. */
 async function repoWith(n: number): Promise<string> {
   const repo = gitRepo({ bare: true });
-  const commands: string[] = [];
+  const records: Array<[string, CheckpointRecord]> = [];
   for (let i = 0; i < n; i++) {
     const record = {
       anvc: 0, id: contentUlid([String(i)], 1757000000000 + i),
@@ -26,12 +47,9 @@ async function repoWith(n: number): Promise<string> {
       delta: { files: [`src/mod${i % 50}.ts`] },
       ts: new Date(1757000000000 + i * 1000).toISOString(),
     } as CheckpointRecord;
-    const oid = Bun.spawnSync(["git", "-C", repo, "hash-object", "-w", "--stdin"],
-      { stdin: new TextEncoder().encode(canonical(record)) }).stdout.toString().trim();
-    commands.push(`create refs/anvc/s${i % 20}/${String(i).padStart(6, "0")} ${oid}`);
+    records.push([`refs/anvc/s${i % 20}/${String(i).padStart(6, "0")}`, record]);
   }
-  Bun.spawnSync(["git", "-C", repo, "update-ref", "--stdin"],
-    { stdin: new TextEncoder().encode(commands.join("\n") + "\n") });
+  writeRefs(repo, records);
   // 50k loose refs cost 201 MB and pack to 6.4 MB; packing is what a real
   // repository would have done long before this point.
   git(repo, "pack-refs", "--all");
@@ -108,7 +126,7 @@ test("folding the log down to what is still true does not scan it", async () => 
   // append-only logs get slower as they grow; it is the index that is missing,
   // not the design that is wrong.
   const repo = gitRepo({ bare: true });
-  const commands: string[] = [];
+  const records: Array<[string, CheckpointRecord]> = [];
   const ids: string[] = [];
   for (let i = 0; i < 3_000; i++) {
     const id = contentUlid([String(i)], 1757000000000 + i);
@@ -127,12 +145,9 @@ test("folding the log down to what is still true does not scan it", async () => 
       ...(resolves ? { parent: resolves } : {}),
       ts: new Date(1757000000000 + i * 1000).toISOString(),
     } as CheckpointRecord;
-    const oid = Bun.spawnSync(["git", "-C", repo, "hash-object", "-w", "--stdin"],
-      { stdin: new TextEncoder().encode(canonical(record)) }).stdout.toString().trim();
-    commands.push(`create refs/anvc/s${i % 20}/${String(i).padStart(6, "0")} ${oid}`);
+    records.push([`refs/anvc/s${i % 20}/${String(i).padStart(6, "0")}`, record]);
   }
-  Bun.spawnSync(["git", "-C", repo, "update-ref", "--stdin"],
-    { stdin: new TextEncoder().encode(commands.join("\n") + "\n") });
+  writeRefs(repo, records);
   git(repo, "pack-refs", "--all");
 
   withIndex(repo, (db) => {
