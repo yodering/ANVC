@@ -3190,16 +3190,7 @@ function Settings() {
 }
 
 // server/tour.tsx
-var SEEN = "anvc.tour.seen";
-function tourSeen() {
-  try {
-    return localStorage.getItem(SEEN) === "1";
-  } catch {
-    return true;
-  }
-}
-function steps(f, install) {
-  const init = install && anvc(install, "init");
+function steps(f, push) {
   const n = (x) => f ? (x ?? 0).toLocaleString() : "…";
   return [
     {
@@ -3291,19 +3282,22 @@ function steps(f, install) {
               }, undefined, true, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          f && !f.pushConfigured && init && /* @__PURE__ */ u3("p", {
+          f && !f.pushConfigured && !f.local && f.remote && /* @__PURE__ */ u3("p", {
             class: "tour-warn",
             children: [
               /* @__PURE__ */ u3(Icon, {
                 name: "triangle-alert",
                 size: 16
               }, undefined, false, undefined, this),
-              "These won't be pushed yet. Run ",
-              /* @__PURE__ */ u3("code", {
-                children: init
+              /* @__PURE__ */ u3("span", {
+                children: push.error ?? "git push doesn't carry these yet."
               }, undefined, false, undefined, this),
-              init.startsWith("/") ? " in Claude Code" : "",
-              " to fix that."
+              !push.error && /* @__PURE__ */ u3("button", {
+                type: "button",
+                class: "button",
+                onClick: push.turnOn,
+                children: "Turn it on"
+              }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this)
         ]
@@ -3365,22 +3359,27 @@ function steps(f, install) {
 function Tour({ open, onClose, onChoose }) {
   const [facts, setFacts] = d2(null);
   const [at, setAt] = d2(0);
-  const install = useInstall();
-  const list = steps(facts, install);
+  const [pushError, setPushError] = d2(null);
+  const load = () => void getJson("/api/tiers", { signal: AbortSignal.timeout(1e4) }).then((body) => {
+    if (!("error" in body))
+      setFacts(body);
+  }).catch(() => {});
+  const turnOn = () => void send("/api/options", { key: "push", on: true }).then((r) => r.json()).then((body) => {
+    if (body.error)
+      setPushError(body.error);
+    else
+      load();
+  }).catch(() => setPushError("Couldn't reach ANVC to turn it on."));
+  const list = steps(facts, { turnOn, error: pushError });
   const last = at === list.length - 1;
   h2(() => {
     if (!open)
       return;
     setAt(0);
-    getJson("/api/tiers", { signal: AbortSignal.timeout(1e4) }).then((body) => {
-      if (!("error" in body))
-        setFacts(body);
-    }).catch(() => {});
+    load();
   }, [open]);
   const close = () => {
-    try {
-      localStorage.setItem(SEEN, "1");
-    } catch {}
+    send("/api/seen", { key: "tour" });
     onClose();
   };
   h2(() => {
@@ -3477,9 +3476,7 @@ function Tour({ open, onClose, onChoose }) {
                       setAt(at + 1);
                       return;
                     }
-                    try {
-                      localStorage.setItem(SEEN, "1");
-                    } catch {}
+                    send("/api/seen", { key: "tour" });
                     onChoose();
                   },
                   children: [
@@ -7284,23 +7281,25 @@ function App() {
   const [session, setSession] = d2(null);
   const [selected, setSelected] = d2(null);
   const [setup, setSetup] = d2(false);
-  const [tour, setTour] = d2(() => !tourSeen());
+  const [tour, setTour] = d2(false);
   const [choose, setChoose] = d2(false);
   h2(() => {
-    if (!tourSeen())
-      return;
-    let seen = false;
-    try {
-      seen = localStorage.getItem("anvc.choose.seen") === "1";
-    } catch {
-      return;
-    }
-    Promise.all([getJson("/api/policy"), getJson("/api/assist")]).then(([p, a]) => {
-      if (p && p.chosen === false && !seen || a && a.everywhere?.from === "default")
+    Promise.all([getJson("/api/seen"), getJson("/api/policy"), getJson("/api/assist")]).then(([seen, p, a]) => {
+      for (const key of ["tour", "choose"]) {
+        try {
+          if (!seen[key] && localStorage.getItem(`anvc.${key}.seen`) === "1") {
+            seen[key] = true;
+            send("/api/seen", { key });
+          }
+        } catch {}
+      }
+      if (!seen.tour)
+        setTour(true);
+      else if (!seen.choose && (p && p.chosen === false || a && a.everywhere?.from === "default"))
         setChoose(true);
     }).catch(() => {});
   }, []);
-  const [page, setPage] = d2("work");
+  const [page, setPage] = d2(() => new URLSearchParams(location.search).get("page") === "folders" ? "folders" : "work");
   h2(() => {
     getJson("/api/goals").then((v) => {
       if (v.goals?.length)
@@ -7378,8 +7377,14 @@ function App() {
       url.searchParams.delete("example");
     history.replaceState(null, "", url);
   };
+  const install = useInstall();
   h2(() => {
     const onKey = (event) => {
+      if (install?.managed === "desktop" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n" && !event.repeat) {
+        event.preventDefault();
+        send("/api/window", {});
+        return;
+      }
       if (setup || tour || event.metaKey || event.ctrlKey || event.altKey)
         return;
       const element = event.target;
@@ -7399,7 +7404,7 @@ function App() {
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [setup, tour, query, outcome, session, active, closeDetails]);
+  }, [setup, tour, query, outcome, session, active, closeDetails, install?.managed]);
   return /* @__PURE__ */ u3(S, {
     children: [
       /* @__PURE__ */ u3(Sprite, {}, undefined, false, undefined, this),
@@ -7856,9 +7861,7 @@ function App() {
       /* @__PURE__ */ u3(Choose, {
         open: choose,
         onClose: () => {
-          try {
-            localStorage.setItem("anvc.choose.seen", "1");
-          } catch {}
+          send("/api/seen", { key: "choose" });
           setChoose(false);
         },
         onCustomise: () => {

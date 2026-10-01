@@ -303,7 +303,7 @@ function collapse(text) {
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.5",
+  version: "0.4.6",
   private: true,
   type: "module",
   scripts: {

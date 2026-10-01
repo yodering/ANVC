@@ -13,21 +13,13 @@
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import type { tierFacts } from "../protocol/tiers";
-import { anvc, useInstall, type Install } from "./install";
-import { getJson, Icon, Modal, plural } from "./widgets";
+import { getJson, Icon, Modal, plural, send } from "./widgets";
 
 type Facts = ReturnType<typeof tierFacts>;
 
-const SEEN = "anvc.tour.seen";
-
-export function tourSeen(): boolean {
-  try { return localStorage.getItem(SEEN) === "1"; } catch { return true; }
-}
-
 interface Step { title: string; body: ComponentChildren; visual: ComponentChildren }
 
-function steps(f: Facts | null, install: Install | null): Step[] {
-  const init = install && anvc(install, "init");
+function steps(f: Facts | null, push: { turnOn: () => void; error: string | null }): Step[] {
   const n = (x: number | undefined) => (f ? (x ?? 0).toLocaleString() : "…");
   return [
     {
@@ -65,10 +57,11 @@ function steps(f: Facts | null, install: Install | null): Step[] {
               <li>{f ? `${n(f.shared.fromTeammates)} from teammates` : "…"}</li>
             </ul>
           </div>
-          {f && !f.pushConfigured && init && (
+          {f && !f.pushConfigured && !f.local && f.remote && (
             <p class="tour-warn">
               <Icon name="triangle-alert" size={16} />
-              These won't be pushed yet. Run <code>{init}</code>{init.startsWith("/") ? " in Claude Code" : ""} to fix that.
+              <span>{push.error ?? "git push doesn't carry these yet."}</span>
+              {!push.error && <button type="button" class="button" onClick={push.turnOn}>Turn it on</button>}
             </p>
           )}
         </div>
@@ -92,20 +85,24 @@ function steps(f: Facts | null, install: Install | null): Step[] {
 export function Tour({ open, onClose, onChoose }: { open: boolean; onClose: () => void; onChoose: () => void }) {
   const [facts, setFacts] = useState<Facts | null>(null);
   const [at, setAt] = useState(0);
-  const install = useInstall();
-  const list = steps(facts, install);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const load = () => void getJson<Facts | { error: string }>("/api/tiers", { signal: AbortSignal.timeout(10000) })
+    .then((body) => { if (!("error" in body)) setFacts(body); })
+    .catch(() => { /* the tour still reads without numbers */ });
+  const turnOn = () => void send("/api/options", { key: "push", on: true }).then((r) => r.json())
+    .then((body: { error?: string }) => { if (body.error) setPushError(body.error); else load(); })
+    .catch(() => setPushError("Couldn't reach ANVC to turn it on."));
+  const list = steps(facts, { turnOn, error: pushError });
   const last = at === list.length - 1;
 
   useEffect(() => {
     if (!open) return;
     setAt(0);
-    void getJson<Facts | { error: string }>("/api/tiers", { signal: AbortSignal.timeout(10000) })
-      .then((body) => { if (!("error" in body)) setFacts(body); })
-      .catch(() => { /* the tour still reads without numbers */ });
+    load();
   }, [open]);
 
   const close = () => {
-    try { localStorage.setItem(SEEN, "1"); } catch { /* a private window forgets; fine */ }
+    void send("/api/seen", { key: "tour" });
     onClose();
   };
 
@@ -157,7 +154,7 @@ export function Tour({ open, onClose, onChoose }: { open: boolean; onClose: () =
             <button type="button" class="button primary" onClick={() => {
               if (!last) { setAt(at + 1); return; }
               // The tour ends where the choice it explained is made.
-              try { localStorage.setItem(SEEN, "1"); } catch { /* fine */ }
+              void send("/api/seen", { key: "tour" });
               onChoose();
             }}>
               {last ? "Choose what to save" : "Next"}

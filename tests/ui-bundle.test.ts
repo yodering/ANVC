@@ -276,6 +276,21 @@ test("Settings turns git push, the push check and the AGENTS.md lines on and off
   } finally { stop(); }
 }, 60_000);
 
+test("the tour and the first choice are seen once per computer, and only the desktop app opens a window", async () => {
+  // Kept outside the page, whose storage is per port: a second window is on the next one.
+  const { origin, stop } = await serve({ ...process.env, ANVC_STATE_HOME: tmp("anvc-seen-") }, gitRepo({ commit: true }));
+  try {
+    const seen = async () => (await uiFetch(`${origin}/api/seen`)).json();
+    expect(await seen()).toEqual({});
+    expect((await uiPost(`${origin}/api/seen`, { key: "tour" }, {})).status).toBe(403);
+    expect(await (await uiPost(`${origin}/api/seen`, { key: "tour" })).json()).toEqual({ tour: true });
+    expect((await uiPost(`${origin}/api/seen`, { key: "anything" })).status).toBe(400);
+    expect(await seen()).toEqual({ tour: true });
+    // Outside the desktop app there's no app to start.
+    expect((await uiPost(`${origin}/api/window`, {})).status).toBe(403);
+  } finally { stop(); }
+}, 60_000);
+
 test("Approve goals is a switch in Settings, and the page answers what an agent proposed", async () => {
   const repo = gitRepo({ commit: true });
   const { origin, stop } = await serve(process.env, repo);

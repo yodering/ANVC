@@ -92165,7 +92165,7 @@ function collapse(text) {
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.5",
+  version: "0.4.6",
   private: true,
   type: "module",
   scripts: {
@@ -98226,6 +98226,7 @@ function tierFacts(repo) {
     default: defaultTier(repo),
     pushConfigured: pushSpecs.split(`
 `).includes("refs/anvc/*:refs/anvc/*"),
+    local: isLocalOnly(repo),
     remote,
     private: {
       records: priv.length,
@@ -99398,7 +99399,7 @@ ${done.pushBack.map((c) => `  ${c}`).join(`
 }
 
 // server/ui.html
-var ui_default = __jsonParse("{\"index\":\"./ui.html\",\"files\":[{\"input\":\"server/ui.html\",\"path\":\"./chunk-sgsvcnyr.js\",\"loader\":\"js\",\"isEntry\":true,\"headers\":{\"etag\":\"ubCZO2z1vng\",\"content-type\":\"text/javascript;charset=utf-8\"}},{\"input\":\"server/ui.html\",\"path\":\"./ui.html\",\"loader\":\"html\",\"isEntry\":true,\"headers\":{\"etag\":\"Zf-0q5BNbPQ\",\"content-type\":\"text/html;charset=utf-8\"}},{\"input\":\"server/ui.html\",\"path\":\"./chunk-c2ydk55e.css\",\"loader\":\"css\",\"isEntry\":true,\"headers\":{\"etag\":\"rKLeLROl5S4\",\"content-type\":\"text/css;charset=utf-8\"}}]}");
+var ui_default = __jsonParse("{\"index\":\"./ui.html\",\"files\":[{\"input\":\"server/ui.html\",\"path\":\"./chunk-5yrb5tkd.js\",\"loader\":\"js\",\"isEntry\":true,\"headers\":{\"etag\":\"5X64a8W6cw0\",\"content-type\":\"text/javascript;charset=utf-8\"}},{\"input\":\"server/ui.html\",\"path\":\"./ui.html\",\"loader\":\"html\",\"isEntry\":true,\"headers\":{\"etag\":\"BjI7QGhEHRs\",\"content-type\":\"text/html;charset=utf-8\"}},{\"input\":\"server/ui.html\",\"path\":\"./chunk-6qy0qn8y.css\",\"loader\":\"css\",\"isEntry\":true,\"headers\":{\"etag\":\"xrdegPd1SJ4\",\"content-type\":\"text/css;charset=utf-8\"}}]}");
 
 // server/inspect.ts
 var argv = process.argv.slice(2);
@@ -99719,6 +99720,21 @@ async function answer(request, ownPort) {
         throw new Error("That isn't a backup of this project.");
       return { restored: restore(root, found.file), backups: backups(root) };
     });
+  }
+  if (url.pathname === "/api/seen") {
+    const file = join21(stateHome(), "seen.json");
+    return route("refused: this can only be changed from the anvc page", () => readJson(file, {}), ({ key }) => {
+      if (key !== "tour" && key !== "choose")
+        throw new Error("needs key: tour or choose");
+      writeJson(file, { ...readJson(file, {}), [key]: true });
+    });
+  }
+  if (url.pathname === "/api/window" && request.method === "POST") {
+    const app = process.env.ANVC_DESKTOP_APP;
+    if (!fromPage() || !app)
+      return Response.json({ error: "refused: a new window opens only from the desktop app" }, { status: 403 });
+    Bun.spawn([app], { detached: true, stdio: ["ignore", "ignore", "ignore"] }).unref();
+    return Response.json({ ok: true });
   }
   if (url.pathname === "/api/options") {
     return route("refused: this can only be changed from the anvc page", () => options(root, root), ({ key, on }) => {

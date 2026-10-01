@@ -37,14 +37,14 @@ import { installPrePush, removePrePush } from "../protocol/prepush";
 import { forRepo, retirements } from "../protocol/query";
 import { addRule, changeRule, listRules, parseApplies, parseFrom, removeRule, ruleText } from "../protocol/rules";
 import { personDecide } from "../protocol/retire";
-import { checkDaily, CLI, HOME, hooksBehind, installs, managedBy, readUpdate, update, version } from "../protocol/version";
+import { checkDaily, CLI, HOME, hooksBehind, installs, managedBy, readUpdate, stateHome, update, version } from "../protocol/version";
 import { repoRoot } from "../protocol/activity";
 import { exportPolicy, FIELDS, importPolicy, PRESETS, readPolicy, writePolicy, type Policy } from "../protocol/policy";
 import { folders, setFolder } from "../protocol/folders";
 import { flag, shellWord } from "../protocol/args";
 import { tierFacts } from "../protocol/tiers";
 import { helpedView, mapView, repoView } from "./api";
-import { below, isRepo, tokenProof, uiToken } from "../protocol/rawlog";
+import { below, isRepo, readJson, tokenProof, uiToken, writeJson } from "../protocol/rawlog";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { currentNotes, inventory, tilde, writeNote } from "../protocol/tools";
 import { sourcesView } from "../protocol/sources";
@@ -56,8 +56,8 @@ let repo = resolve(flag(argv, "repo", process.env.ANVC_REPO ?? process.cwd()));
 let root = repoRoot(repo) ?? repo;
 // 0 is any free port. A range such as 7431-7450 is the first free port in it,
 // then any: the desktop app asks for one, because the page's browser storage
-// is keyed by origin and a new port every launch made every launch a first
-// visit. Binding here, instead of the app finding a free port and passing it,
+// is keyed by origin and a new port every launch forgot the sidebar's width
+// and filters. Binding here, instead of the app finding a free port and passing it,
 // leaves no moment in which another process can take that port.
 const [low, high = low] = flag(argv, "port", "7000").split("-").map((n) => Number.parseInt(n, 10));
 const ports = high > low ? [...Array.from({ length: high - low + 1 }, (_, i) => low + i), 0] : [low];
@@ -444,6 +444,26 @@ async function answer(request: Request, ownPort: number | undefined): Promise<Re
       if (!found) throw new Error("That isn't a backup of this project.");
       return { restored: restore(root, found.file), backups: backups(root) };
     });
+  }
+
+  // What the person has already seen, kept for this computer. The page's own
+  // storage is per port, and a second desktop window, on the next port, showed
+  // the tour and the first choice again.
+  if (url.pathname === "/api/seen") {
+    const file = join(stateHome(), "seen.json");
+    return route<{ key?: unknown }>("refused: this can only be changed from the anvc page", () => readJson<Record<string, boolean>>(file, {}), ({ key }) => {
+      if (key !== "tour" && key !== "choose") throw new Error("needs key: tour or choose");
+      writeJson(file, { ...readJson<Record<string, boolean>>(file, {}), [key]: true });
+    });
+  }
+
+  // Ctrl+N in the desktop app. The page can't reach the app, which is the
+  // point, so the app names itself to this server, which starts another copy.
+  if (url.pathname === "/api/window" && request.method === "POST") {
+    const app = process.env.ANVC_DESKTOP_APP;
+    if (!fromPage() || !app) return Response.json({ error: "refused: a new window opens only from the desktop app" }, { status: 403 });
+    Bun.spawn([app], { detached: true, stdio: ["ignore", "ignore", "ignore"] }).unref();
+    return Response.json({ ok: true });
   }
 
   // Everything `anvc options` lists for this project, and the three switches

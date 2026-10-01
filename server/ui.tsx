@@ -9,7 +9,7 @@ import {
 import { Sprite } from "./icons";
 import { HelpedBlock } from "./helped";
 import { Settings } from "./settings";
-import { Tour, tourSeen } from "./tour";
+import { Tour } from "./tour";
 import { Choose } from "./choose";
 import { ProjectMap } from "./map";
 import { ProjectPage } from "./project";
@@ -611,21 +611,23 @@ function App() {
   const [setup, setSetup] = useState(false);
   // Open on the first visit: what travels with git push and what never does is
   // the one thing to understand before trusting this with real work.
-  const [tour, setTour] = useState(() => !tourSeen());
+  const [tour, setTour] = useState(false);
   // The first choice, made once: after the tour, or on a later visit if the
-  // tour was closed before it got there.
+  // tour was closed before it got there. Also opened for anyone set up before
+  // ANVC asked how much to tell the agent, so that question reaches them once.
   const [choose, setChoose] = useState(false);
-  // Also opened for anyone set up before ANVC asked how much to tell the
-  // agent, so that question reaches them once.
   useEffect(() => {
-    if (!tourSeen()) return;
-    let seen = false;
-    try { seen = localStorage.getItem("anvc.choose.seen") === "1"; } catch { return; }
-    void Promise.all([getJson("/api/policy"), getJson("/api/assist")]).then(([p, a]) => {
-      if ((p && p.chosen === false && !seen) || (a && a.everywhere?.from === "default")) setChoose(true);
+    void Promise.all([getJson("/api/seen"), getJson("/api/policy"), getJson("/api/assist")]).then(([seen, p, a]) => {
+      // Seen in this browser before the server kept it.
+      for (const key of ["tour", "choose"]) {
+        try { if (!seen[key] && localStorage.getItem(`anvc.${key}.seen`) === "1") { seen[key] = true; void send("/api/seen", { key }); } } catch { /* fine */ }
+      }
+      if (!seen.tour) setTour(true);
+      else if (!seen.choose && ((p && p.chosen === false) || (a && a.everywhere?.from === "default"))) setChoose(true);
     }).catch(() => {});
   }, []);
-  const [page, setPage] = useState<Page>("work");
+  // A second desktop window opens on the project list, to pick what it shows.
+  const [page, setPage] = useState<Page>(() => (new URLSearchParams(location.search).get("page") === "folders" ? "folders" : "work"));
   // A project with goals opens on them.
   useEffect(() => {
     void getJson<{ goals?: unknown[] }>("/api/goals").then((v) => { if (v.goals?.length) setPage((p) => (p === "work" ? "project" : p)); }).catch(() => {});
@@ -699,8 +701,15 @@ function App() {
     else url.searchParams.delete("example");
     history.replaceState(null, "", url);
   };
+  const install = useInstall();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Ctrl+N opens another window in the desktop app; a browser opens its own.
+      if (install?.managed === "desktop" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n" && !event.repeat) {
+        event.preventDefault();
+        void send("/api/window", {});
+        return;
+      }
       if (setup || tour || event.metaKey || event.ctrlKey || event.altKey) return;
       const element = event.target as HTMLElement;
       const editing =
@@ -717,7 +726,7 @@ function App() {
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [setup, tour, query, outcome, session, active, closeDetails]);
+  }, [setup, tour, query, outcome, session, active, closeDetails, install?.managed]);
 
   return (
     <>
@@ -998,7 +1007,7 @@ function App() {
       </div>
       <Setup open={setup} onClose={() => setSetup(false)} />
       <Tour open={tour} onClose={() => setTour(false)} onChoose={() => { setTour(false); setChoose(true); }} />
-      <Choose open={choose} onClose={() => { try { localStorage.setItem("anvc.choose.seen", "1"); } catch { /* fine */ } setChoose(false); }} onCustomise={() => { setChoose(false); setPage("settings"); }} />
+      <Choose open={choose} onClose={() => { void send("/api/seen", { key: "choose" }); setChoose(false); }} onCustomise={() => { setChoose(false); setPage("settings"); }} />
     </>
   );
 }

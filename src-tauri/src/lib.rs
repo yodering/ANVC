@@ -28,20 +28,19 @@ use tauri_plugin_shell::ShellExt;
 /// one beside it.
 struct Server(Mutex<Option<CommandChild>>);
 
-/// The repository to open: `--repo`, then `ANVC_REPO`, then the one thing only
-/// an app launched from a menu needs, the one opened last time. Without any of
-/// them, start() asks with a folder picker.
-fn known_repo(app: &tauri::AppHandle) -> Option<PathBuf> {
+/// The repository the launch named: `--repo`, then `ANVC_REPO`. Without one,
+/// start() opens the one opened last time, or asks with a folder picker.
+fn named_repo() -> Option<PathBuf> {
     let args: Vec<String> = std::env::args().collect();
     let from_arg = args
         .iter()
         .position(|a| a == "--repo")
         .and_then(|i| args.get(i + 1).cloned())
         .or_else(|| args.iter().find_map(|a| a.strip_prefix("--repo=").map(String::from)));
-    if let Some(repo) = from_arg.or_else(|| std::env::var("ANVC_REPO").ok()) {
-        return Some(PathBuf::from(repo));
-    }
+    from_arg.or_else(|| std::env::var("ANVC_REPO").ok()).map(PathBuf::from)
+}
 
+fn remembered_repo(app: &tauri::AppHandle) -> Option<PathBuf> {
     remembered_file(app)
         .and_then(|f| std::fs::read_to_string(f).ok())
         .map(|s| PathBuf::from(s.trim()))
@@ -63,10 +62,9 @@ fn remembered_file(app: &tauri::AppHandle) -> Option<PathBuf> {
 
 /// The ports the server tries in order, before any free port.
 ///
-/// It has to be stable. The page keeps what it remembers — the tour having been
-/// seen, a chosen filter — in browser storage, which is keyed by origin, and the
-/// port is part of the origin. A port picked fresh each launch made every
-/// launch a first visit. The range stays clear of `bun run ui`'s 7451-7470.
+/// It has to be stable. The page keeps what it remembers — the sidebar's width,
+/// a chosen filter — in browser storage, which is keyed by origin, and the port
+/// is part of the origin. The range stays clear of `bun run ui`'s 7451-7470.
 ///
 /// The server binds it and says which one it got. This app used to find a
 /// free port, let it go and pass the number on, and in between another
@@ -98,8 +96,13 @@ fn show_failure(window: &tauri::WebviewWindow, message: &str, detail: &str) {
 
 fn start(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
-    if let Some(repo) = known_repo(&handle) {
-        return open(&handle, repo);
+    if let Some(repo) = named_repo() {
+        return open(&handle, repo, false);
+    }
+    // Launched with nothing named, as from a menu: the last project, or the
+    // list of them when another window already has the first port.
+    if let Some(repo) = remembered_repo(&handle) {
+        return open(&handle, repo, true);
     }
     // Setup runs on the main thread, and tauri-plugin-dialog says its blocking
     // picker isn't for use there, so this one answers in a callback.
@@ -110,7 +113,7 @@ fn start(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             return;
         };
         remember(&handle, &repo);
-        if let Err(error) = open(&handle, repo) {
+        if let Err(error) = open(&handle, repo, false) {
             if let Some(window) = handle.get_webview_window("main") {
                 show_failure(&window, "The work log did not start.", &error.to_string());
             }
@@ -120,7 +123,8 @@ fn start(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Starts the server for `repo` and points the window at it once it's listening.
-fn open(app: &tauri::AppHandle, repo: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+/// With `or_list`, a window that isn't the first opens on the project list.
+fn open(app: &tauri::AppHandle, repo: PathBuf, or_list: bool) -> Result<(), Box<dyn std::error::Error>> {
     let window = app.get_webview_window("main").ok_or("no main window")?;
     if !repo.join(".git").exists() {
         show_failure(&window, "That folder is not a git repository.", &repo.to_string_lossy());
@@ -140,6 +144,9 @@ fn open(app: &tauri::AppHandle, repo: PathBuf) -> Result<(), Box<dyn std::error:
         // covers only the one way that runs any code.
         .args(["--repo", &repo.to_string_lossy(), "--port", PORTS, "--exit-with-parent"])
         .env("ANVC_UI_TOKEN", &token)
+        // What the server starts for Ctrl+N. An AppImage runs from a mount
+        // that goes when it exits, so the image itself is named.
+        .env("ANVC_DESKTOP_APP", std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok()).unwrap_or_default())
         .spawn()?;
     app.state::<Server>().0.lock().unwrap().replace(child);
 
@@ -157,7 +164,14 @@ fn open(app: &tauri::AppHandle, repo: PathBuf) -> Result<(), Box<dyn std::error:
                 CommandEvent::Stdout(line) => {
                     let line = String::from_utf8_lossy(&line);
                     let port = line.trim().strip_prefix("anvc listening 127.0.0.1:").and_then(|p| p.parse::<u16>().ok());
-                    if let Some(url) = port.and_then(|p| Url::parse(&format!("http://127.0.0.1:{p}/?t={token}")).ok()) {
+                    // The first window gets the first port. One that didn't is
+                    // another window, which opens on the project list.
+                    let another = or_list && port.is_some() && port != PORTS.split('-').next().and_then(|p| p.parse().ok());
+                    if another {
+                        let _ = log_window.set_title("ANVC");
+                    }
+                    let page = if another { "&page=folders" } else { "" };
+                    if let Some(url) = port.and_then(|p| Url::parse(&format!("http://127.0.0.1:{p}/?t={token}{page}")).ok()) {
                         log_heard.store(true, Ordering::SeqCst);
                         let _ = log_window.navigate(url);
                     }

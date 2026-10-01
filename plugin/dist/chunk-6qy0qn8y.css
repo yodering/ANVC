@@ -2966,6 +2966,7 @@ kbd {
   grid-column: 1 / -1;
   display: flex;
   color: var(--accent);
+  flex-wrap: wrap;
   align-items:  center;
   gap: 9px;
   margin: 2px 0 0;

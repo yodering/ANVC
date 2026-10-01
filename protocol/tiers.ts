@@ -22,6 +22,7 @@ import { keptSessions } from "./keep";
 import { repoRoot } from "./activity";
 import { gitOrNull, readRefs } from "./git";
 import { defaultTier, readRecords, TIER_PREFIX, type Tier } from "./record";
+import { isLocalOnly } from "./localonly";
 
 interface TierFacts {
   repo: string;
@@ -29,6 +30,8 @@ interface TierFacts {
   default: Tier;
   /** Whether `git push` will carry shared records at all. */
   pushConfigured: boolean;
+  /** Local only: nothing is pushed, by the person's choice. */
+  local: boolean;
   remote: string | null;
   private: {
     records: number;
@@ -117,6 +120,7 @@ export function tierFacts(repo: string): TierFacts {
     repo,
     default: defaultTier(repo),
     pushConfigured: pushSpecs.split("\n").includes("refs/anvc/*:refs/anvc/*"),
+    local: isLocalOnly(repo),
     remote,
     private: {
       records: priv.length,
