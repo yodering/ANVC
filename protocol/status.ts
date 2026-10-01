@@ -337,11 +337,15 @@ function standing(root: string, r: { ts: string; anchor_kind: string; anchor_oid
 
 type AttemptRow = { id: string; ref: string; ts: string; intent: string; agent: string; anchor_kind: string; anchor_oid: string; serves: string | null };
 
-/** The last ten kept attempts with a goal and items marked done, newest first. */
+/**
+ * The last ten kept attempts with a goal and items marked done, newest first.
+ * A record that only writes a map is left out, and one that also wrote files
+ * is the work the map came with.
+ */
 function finished(db: Database, root: string, items: Item[]): Finished[] {
   const attempts = (db.prepare(`SELECT id, ref, ts, intent, agent, anchor_kind, anchor_oid, serves FROM records
     WHERE status = 'kept' AND intent_source = 'authored' AND TRIM(intent) != '' AND result IS NULL AND retires IS NULL AND retired IS NULL
-      AND id NOT IN (SELECT id FROM maps)
+      AND (id NOT IN (SELECT id FROM maps) OR id IN (SELECT id FROM files WHERE kind = 'write'))
     ORDER BY ts DESC LIMIT ?`).all(DONE) as AttemptRow[]).map((r) => ({ ...r, kind: "attempt" as const }));
   const done = items.filter((i) => i.state === "done").map((i) => ({ ...i, ts: i.since, kind: "item" as const }));
   const files = db.prepare(`SELECT path FROM files WHERE id = ? AND kind = 'write'`);

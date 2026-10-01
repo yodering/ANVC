@@ -429,7 +429,7 @@ import { join as join4 } from "path";
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.2",
+  version: "0.4.3",
   private: true,
   type: "module",
   scripts: {
@@ -7446,7 +7446,7 @@ function standing(root, r, files, here) {
 function finished(db, root, items) {
   const attempts = db.prepare(`SELECT id, ref, ts, intent, agent, anchor_kind, anchor_oid, serves FROM records
     WHERE status = 'kept' AND intent_source = 'authored' AND TRIM(intent) != '' AND result IS NULL AND retires IS NULL AND retired IS NULL
-      AND id NOT IN (SELECT id FROM maps)
+      AND (id NOT IN (SELECT id FROM maps) OR id IN (SELECT id FROM files WHERE kind = 'write'))
     ORDER BY ts DESC LIMIT ?`).all(DONE).map((r) => ({ ...r, kind: "attempt" }));
   const done = items.filter((i) => i.state === "done").map((i) => ({ ...i, ts: i.since, kind: "item" }));
   const files = db.prepare(`SELECT path FROM files WHERE id = ? AND kind = 'write'`);

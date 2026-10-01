@@ -237,6 +237,15 @@ test("done recently says where each kept attempt's work stands", () => {
   expect(statusText(readStatus(repo))).toContain("- just now: Tagged work (in main)");
 }, 60_000);
 
+test("done recently shows a kept attempt that carries a map, and leaves out a map written on its own", () => {
+  const repo = gitRepo({ commit: true });
+  const map = (part: string) => ({ part, does: `What ${part} is for.` });
+  appendRecord(repo, rec({ intent: { goal: "Split the indexer" }, delta: { files: ["protocol/query.ts"] }, map: map("the index") }));
+  appendRecord(repo, rec({ intent: { goal: "Describe the work log" }, map: map("the work log") }));
+
+  expect(readStatus(repo).done.map((f) => f.title)).toEqual(["Split the indexer"]);
+});
+
 test("a session starts with the status, hears it again after compaction, and the moment can be switched off", () => {
   const repo = gitRepo({ commit: true });
   const state = tmp("anvc-status-state-");
