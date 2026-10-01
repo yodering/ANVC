@@ -135,6 +135,9 @@ test("a PDF is kept with its text when pdftotext is here, and without it otherwi
   const { dir, hook } = project();
   const outside = tmp("anvc-sources-scratch-");
   writeFileSync(join(outside, "paper.pdf"), pdf("Ranking with hard negatives"));
+  // On GitHub's Windows runners, pdftotext's first call in a run took over the
+  // hook's 5 s in two of four runs, so it's called once first, with no limit.
+  if (Bun.which("pdftotext")) Bun.spawnSync(["pdftotext", "-q", join(outside, "paper.pdf"), "-"], { windowsHide: true });
   hook({ tool_name: "Read", tool_input: { file_path: join(outside, "paper.pdf") },
     tool_response: { type: "pdf", file: { filePath: join(outside, "paper.pdf"), base64: "", originalSize: 600 } } });
   const [paper] = readSources(dir);
