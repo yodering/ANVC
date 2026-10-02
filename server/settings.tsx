@@ -6,6 +6,7 @@
  * a settings page with a Save button is one people leave without pressing it.
  */
 import { DataSettings } from "./results";
+import { AbsorbSettings } from "./absorb";
 import { AssistSettings } from "./assist";
 import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
@@ -379,6 +380,7 @@ export function Settings() {
     <div class="settings">
       <AssistSettings />
       <DataSettings />
+      <AbsorbSettings />
       {local !== null && <LocalOnly on={local} onChange={(on) => void changeLocal(on)} />}
       {local !== null && <Switches heading="Git" keys={["push", "prepush", "instructions"]} again={local} />}
       <Switches heading="Goals" keys={["approvegoals"]} />

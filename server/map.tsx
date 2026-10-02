@@ -11,6 +11,7 @@
  * here are the things a person would say out loud, layout is computed by ELK
  * on the server, and nothing is set below fourteen pixels.
  */
+import { AbsorbNote } from "./absorb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { Diagram, LaidNode } from "./layout";
 import type { mapView } from "./api";
@@ -536,10 +537,10 @@ export function ProjectMap() {
         </p>
       )}
       {drawn.nodes.length === 0 ? (
-        <div class="map-blank">
-          <p class="map-blank-head">Nothing mapped yet.</p>
-          <p class="detail-prose">Ask your agent to describe how the project fits together.</p>
-        </div>
+        <>
+          <AbsorbNote what="map" />
+          <p class="goals-empty">Nothing mapped yet.</p>
+        </>
       ) : (
         <div class="map-body">
           <div class="map-main">

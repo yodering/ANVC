@@ -39,6 +39,7 @@ import { setupEverywhere } from "../protocol/options";
 import { PRESETS, readPolicy, writeDefaults, writePolicy } from "../protocol/policy";
 import { ago, candidates } from "../protocol/recent";
 import { setDataMode, type DataMode } from "../protocol/results";
+import { ABSORB_COST, ABSORB_MODES, setAbsorbMode, type AbsorbMode } from "../protocol/absorb";
 import { samePath } from "../protocol/rawlog";
 import { tilde } from "../protocol/tools";
 
@@ -87,6 +88,7 @@ let repo = "";
 let level: Level = "auto";
 let sharing = "team";
 let results: DataMode = "results";
+let absorbing: AbsorbMode = "off";
 let instructions = false;
 let remote = true;
 let prePush = false;
@@ -231,6 +233,20 @@ const steps: Step[] = [
     },
   },
   {
+    name: "absorb",
+    when: () => !byAgent,
+    // It spends tokens on the person's plan, so it's asked, and off unless they say yes.
+    ask: async () => {
+      const v = await choose("Keep your goals, writing rules and project map up to date from your sessions, with a small model?", [
+        ...(Bun.which("claude") ? [{ value: "claude" as AbsorbMode, label: "Yes, with Claude Haiku", hint: `It runs through your claude command after a turn ends, outside the session. ${ABSORB_COST}` }] : []),
+        ...(Bun.which("codex") ? [{ value: "codex" as AbsorbMode, label: "Yes, with Codex", hint: `It runs through your codex command after a turn ends, outside the session. ${ABSORB_COST}` }] : []),
+        { value: "off" as AbsorbMode, label: "No", hint: "Goals, writing rules and the map change only when you or your agent change them." },
+      ], absorbing);
+      if (is(v)) absorbing = v;
+      return is(v);
+    },
+  },
+  {
     name: "instructions",
     // Only where it applies: every project has no one file to write to, and
     // the hooks already remind the three agents above.
@@ -275,6 +291,7 @@ const steps: Step[] = [
         `Your agent   ${LEVELS[level].label}`,
         `Readers      ${SHARING[sharing as keyof typeof SHARING].label}`,
         `Results      ${results === "results" ? "kept track of" : "off"}`,
+        `Goals        ${absorbing === "off" ? "changed only by you or your agent" : `kept up to date by ${ABSORB_MODES[absorbing].label}`}`,
         ...(desktop ? ["Desktop app  install"] : []),
         ...(agentsFile() ? [`${agentsFile()!.padEnd(13)}${instructions ? "add one line" : "leave as it is"}`] : []),
         ...(!everywhere && !localOnly() ? [
@@ -377,6 +394,7 @@ if (everywhere) {
   writeAssist(null, { level });
   writeDefaults({ preset, localOnly: localOnly() });
   setDataMode(null, results);
+  setAbsorbMode(null, absorbing);
 } else {
   s.start(`Setting up ${tilde(repo)}`);
   for (const agent of agents) {
@@ -386,6 +404,7 @@ if (everywhere) {
   }
   writeAssist(repo, { level });
   setDataMode(repo, results);
+  setAbsorbMode(repo, absorbing);
   writePolicy(repo, { ...readPolicy(repo), preset, ...structuredClone(PRESETS[preset]!.policy) });
   if (localOnly()) setLocalOnly(repo, true);
   s.stop(`Set up ${tilde(repo)}`);

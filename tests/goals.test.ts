@@ -119,7 +119,7 @@ test("a person adds goals and changes their status from the command line", () =>
   expect(cli(repo, "goal", "01K00000000000000000000000", "done").out).toContain("no goal");
 }, 30_000);
 
-test("a session starts with the goals, and hears them again after compaction", () => {
+test("goals stay out of a session by default, and with the moment on it starts with them and hears them again after compaction", () => {
   const repo = gitRepo({ commit: true });
   const state = tmp("anvc-goals-state-");
   const top = addGoal(repo, { title: "Ship the Project page" }, person);
@@ -130,6 +130,9 @@ test("a session starts with the goals, and hears them again after compaction", (
   const start = (source: string, session = "s1") => context("SessionStart",
     { hook_event_name: "SessionStart", session_id: session, cwd: repo, source }, { ANVC_STATE_DIR: state });
 
+  // They're for the person to see: no level shows them unless switched on.
+  expect(start("startup", "s0") ?? "").not.toContain("Ship the Project page");
+  writeAssist(repo, { moment: "goals", on: true });
   const first = start("startup")!;
   expect(first).toContain("anvc: this project's goals, 0 of 1 done.");
   expect(first).toContain(`- In progress: Ship the Project page, 1 of 2 done, id ${top}\n  - To do: Tools section`);

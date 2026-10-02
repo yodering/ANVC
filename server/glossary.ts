@@ -18,6 +18,32 @@ export interface Hint {
 }
 
 export const HINTS: Record<string, Hint> = {
+  "hub-results": { term: "Results", what: "The numbers your project relies on, each with the command and files that made it. ANVC flags one when what it depends on changes." },
+  "hub-sources": { term: "Sources", what: "The pages, web searches and papers your agents read, with the text they got back, so the next agent reads the kept copy instead of fetching it again." },
+  "result-part": { term: "Part", what: "The part of the project your agent filed these results under when it recorded them. Only changes to that part's files make a result stale." },
+  // The Stats page, one entry for each count.
+  "stat-shown": { term: "Past attempts shown", what: "Earlier attempts ANVC put in front of an agent: at a session start, after a failed command, or when it asked. Each counts once a session." },
+  "stat-stopped": { term: "Commands stopped", what: "Commands ANVC stopped once because they failed in an earlier session. Your agent can run one again if something changed." },
+  "stat-matched": { term: "Errors matched", what: "Failed commands whose error an earlier attempt had already hit. ANVC showed your agent that attempt." },
+  "stat-recovered": { term: "Restored after compaction", what: "Times a session got its own earlier work back after its context was compacted." },
+  "stat-rules": { term: "Writing rules given", what: "Times your agent got a rule set's text just before it wrote what the rules cover, such as a commit message." },
+  "stat-asked": { term: "Lookups by your agent", what: "Times your agent searched ANVC or opened a record on its own." },
+  "stat-avoided": { term: "Dead ends avoided", what: "An estimate. ANVC showed a dead end, and that session then recorded no new failure on the same files." },
+  "stat-recorded": { term: "Attempts with a reason", what: "Attempts your agent recorded with a reason, kept or abandoned. The work log lists them." },
+  "stat-autosaved": { term: "Attempts without a reason", what: "Work your agent didn't record, which ANVC saved from the raw log. The work log shows it under No reason." },
+  "stat-absorbed": { term: "Goal and rule updates", what: "Updates a small model made to the goals and writing rules from your sessions, when that is on." },
+  "stat-confirmed": { term: "Marked helpful", what: "Records your agent or you marked as helpful." },
+  "stat-added": { term: "Tokens added to agents' context", what: "Everything ANVC gave your agents so far, estimated at 4 characters a token.", why: "For scale: one request from your agent in a long session sends about 300,000 tokens." },
+  "stat-absorb-tokens": { term: "Tokens for goal updates", what: "What the small model used to update goals and writing rules, outside your sessions." },
+  absorb: {
+    term: "Goals, rules and map from your sessions",
+    what: "After your agent's turns, at most every half hour, a small model reads what's new and updates the goals, writing rules and map. It runs through your claude or codex login, apart from your agent.",
+    why: "The first update reads more: about 8,000 tokens with Claude Haiku. For scale, one request from your agent in a long session sends about 300,000.",
+  },
+  "project-map": {
+    term: "Map",
+    what: "The parts of your project and how they connect: drawn from your code's imports, with what each part is for from your agent's notes.",
+  },
   "project-status": {
     term: "Status",
     what: "What each agent session is doing now, the work finished recently and whether it's committed, pushed or released, and what's queued next.",

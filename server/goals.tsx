@@ -12,6 +12,7 @@ import { useState } from "preact/hooks";
 import type { Goal, GoalVersion } from "../protocol/goals";
 import type { GoalStatus } from "../protocol/record";
 import { Icon, OutcomeBadge, Segmented, TitleForm, useLive, when, type Save } from "./widgets";
+import { AbsorbNote } from "./absorb";
 import "./goals.css";
 
 const LABEL: Record<GoalStatus, string> = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped" };
@@ -161,10 +162,11 @@ export function Goals() {
         {live.length > 0 && <span class="goal-progress">{live.filter((g) => g.status === "done").length} of {live.length} done</span>}
         {!adding && <button type="button" class="button" onClick={() => setAdding(true)}><Icon name="plus" size={14} />Add goal</button>}
       </header>
+      <AbsorbNote what="goals" />
       {error && <p class="settings-status is-error">{error}</p>}
       {adding && <TitleForm label="Goal" submit="Add" onSave={(title) => void save({ title }).then((ok) => ok && setAdding(false))} onCancel={() => setAdding(false)} />}
       {!goals.length && !adding && (
-        <p class="goals-empty"><b>No goals yet.</b> Your agent sees them when a session starts, and again after compaction.</p>
+        <p class="goals-empty">No goals yet.</p>
       )}
       {goals.length > 0 && <ul class="goal-list">{goals.map((g) => <GoalItem key={g.id} goal={g} save={save} />)}</ul>}
     </section>

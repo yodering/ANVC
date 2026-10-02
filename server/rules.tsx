@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import { markdown } from "./markdown";
+import { AbsorbNote } from "./absorb";
 import { getJson, Icon, Segmented, send } from "./widgets";
 
 interface RuleSet {
@@ -65,12 +66,13 @@ function RuleForm({ start, onSave, onCancel }: { start?: RuleSet; onSave: (d: Dr
 
 export function Rules() {
   const [rules, setRules] = useState<RuleSet[] | null>(null);
+  const [files, setFiles] = useState<Array<{ path: string; scope: "everywhere" | "project"; text: string }>>([]);
   /** The rule set being edited, "new" for one being added. */
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    getJson<{ rules?: RuleSet[]; error?: string }>("/api/rules")
-      .then((v) => (v.rules ? setRules(v.rules) : setError(v.error ?? "Couldn't load the writing rules")))
+    getJson<{ rules?: RuleSet[]; files?: typeof files; error?: string }>("/api/rules")
+      .then((v) => { setFiles(v.files ?? []); v.rules ? setRules(v.rules) : setError(v.error ?? "Couldn't load the writing rules"); })
       .catch(() => setError("Couldn't load the writing rules"));
   }, []);
 
@@ -96,9 +98,10 @@ export function Rules() {
         <h2 id="rules-heading">Writing rules</h2>
         {rules && editing !== "new" && <button type="button" class="button" onClick={() => setEditing("new")}><Icon name="plus" size={14} />Add rule set</button>}
       </div>
+      <AbsorbNote what="rules" />
       {rules?.length === 0 && editing !== "new" && (
         <p class="rules-empty">
-          Point a rule set at where a kind of text's rules are written, such as a heading in AGENTS.md, and your agent gets them before it writes that text.
+          No rule sets in ANVC yet. A rule set points at rules you already wrote, such as a heading in AGENTS.md. Your agent then gets them just before it writes what they cover, such as a commit message.
         </p>
       )}
       {editing === "new" && <RuleForm onSave={save(null)} onCancel={() => setEditing(null)} />}
@@ -126,6 +129,23 @@ export function Rules() {
               </details>
             ))}
         </div>
+      )}
+      {files.length > 0 && (
+        <>
+          <h3 class="rules-files-head">Your own rule files</h3>
+          <p class="rules-files-sub">Your agent already reads these. ANVC shows them here as they are.</p>
+          <div class="rule-list">
+            {files.map((f) => (
+              <details class="rule" key={f.path}>
+                <summary>
+                  <b><code>{f.path}</code></b>
+                  <span class="rule-where">{f.scope === "everywhere" ? "Your global file" : "This repository's"}</span>
+                </summary>
+                <div class="rule-text md">{markdown(f.text)}</div>
+              </details>
+            ))}
+          </div>
+        </>
       )}
       {error && <p class="settings-status is-error" role="alert">{error}</p>}
     </section>

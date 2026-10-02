@@ -109,9 +109,11 @@ Tell the user in two or three lines what ANVC can set up here. Then ask one ques
 - One by one: one short line per setting, with its choices and the recommended one. Set what the user picks.
 - Only this computer: as for recommended, but keep the other settings with \`"asks": true\` as they are, and offer to turn Local only on.
 
+Whichever the user picks, ask once about \`absorb\` (goals, writing rules and the project map from their sessions) unless \`chosen\` is true: say in one sentence what it does and what it costs, from its \`what\`, and turn it on only if they say yes.
+
 If no recommended choice differs from the current one, say the recommended settings are already in effect. \`chosen\` is false where a value is still the default, and \`overriddenBy\` names the setting that decides this one for now.
 
-Run a choice's \`set\` command, or \`setEverywhere\` if the user wants it for every project. A setting's \`parts\` follow its choice; go into them only if the user asks. A setting with \`"asks": true\` decides what leaves this computer or changes a file the project commits, such as sharing, git push and AGENTS.md. Change one only after the user says yes to it.
+Run a choice's \`set\` command, or \`setEverywhere\` if the user wants it for every project. A setting's \`parts\` follow its choice; go into them only if the user asks. A setting with \`"asks": true\` decides what leaves this computer, changes a file the project commits, or spends tokens on the user's plan, such as sharing, git push, AGENTS.md and absorb. Change one only after the user says yes to it.
 
 When the settings are done, run the command again without \`--json\`, and show the user what is set now and how to change each.
 

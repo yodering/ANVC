@@ -344,7 +344,7 @@ export const sessionOf = (actor: Actor): CheckpointRecord["session"] =>
   actor.kind === "agent" ? { agent: actor.agent, run_id: actor.session } : { agent: "person", run_id: "anvc-person" };
 
 /** Writes a kept record by `actor` holding `body`: a goal, rule set, status item or tool note. */
-export function appendKept(repo: string, body: Pick<CheckpointRecord, "objective" | "rule" | "status_item" | "tool_note">, goal: string,
+export function appendKept(repo: string, body: Pick<CheckpointRecord, "objective" | "rule" | "status_item" | "tool_note" | "map" | "supersedes">, goal: string,
   why: string | undefined, actor: Actor, tier: Tier): { id: string; ref: string } {
   const record: CheckpointRecord = {
     anvc: 0,

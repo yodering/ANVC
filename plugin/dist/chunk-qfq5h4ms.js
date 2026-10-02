@@ -510,6 +510,7 @@ function Sprite() {
   <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5" /><path d="M9 8V2" /><path d="M15 8V2" /><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" /></symbol>
   <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></symbol>
   <symbol id="i-cpu" viewBox="0 0 24 24"><path d="M12 20v2" /><path d="M12 2v2" /><path d="M17 20v2" /><path d="M17 2v2" /><path d="M2 12h2" /><path d="M2 17h2" /><path d="M2 7h2" /><path d="M20 12h2" /><path d="M20 17h2" /><path d="M20 7h2" /><path d="M7 20v2" /><path d="M7 2v2" /><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="8" y="8" width="8" height="8" rx="1" /></symbol>
+  <symbol id="i-chart-column" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></symbol>
   <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5V19A9 3 0 0 0 21 19V5" /><path d="M3 12A9 3 0 0 0 21 12" /></symbol>
   <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2" /><line x1="8" x2="16" y1="21" y2="21" /><line x1="12" x2="12" y1="17" y2="21" /></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
@@ -526,6 +527,31 @@ function Sprite() {
 
 // server/glossary.ts
 var HINTS = {
+  "hub-results": { term: "Results", what: "The numbers your project relies on, each with the command and files that made it. ANVC flags one when what it depends on changes." },
+  "hub-sources": { term: "Sources", what: "The pages, web searches and papers your agents read, with the text they got back, so the next agent reads the kept copy instead of fetching it again." },
+  "result-part": { term: "Part", what: "The part of the project your agent filed these results under when it recorded them. Only changes to that part's files make a result stale." },
+  "stat-shown": { term: "Past attempts shown", what: "Earlier attempts ANVC put in front of an agent: at a session start, after a failed command, or when it asked. Each counts once a session." },
+  "stat-stopped": { term: "Commands stopped", what: "Commands ANVC stopped once because they failed in an earlier session. Your agent can run one again if something changed." },
+  "stat-matched": { term: "Errors matched", what: "Failed commands whose error an earlier attempt had already hit. ANVC showed your agent that attempt." },
+  "stat-recovered": { term: "Restored after compaction", what: "Times a session got its own earlier work back after its context was compacted." },
+  "stat-rules": { term: "Writing rules given", what: "Times your agent got a rule set's text just before it wrote what the rules cover, such as a commit message." },
+  "stat-asked": { term: "Lookups by your agent", what: "Times your agent searched ANVC or opened a record on its own." },
+  "stat-avoided": { term: "Dead ends avoided", what: "An estimate. ANVC showed a dead end, and that session then recorded no new failure on the same files." },
+  "stat-recorded": { term: "Attempts with a reason", what: "Attempts your agent recorded with a reason, kept or abandoned. The work log lists them." },
+  "stat-autosaved": { term: "Attempts without a reason", what: "Work your agent didn't record, which ANVC saved from the raw log. The work log shows it under No reason." },
+  "stat-absorbed": { term: "Goal and rule updates", what: "Updates a small model made to the goals and writing rules from your sessions, when that is on." },
+  "stat-confirmed": { term: "Marked helpful", what: "Records your agent or you marked as helpful." },
+  "stat-added": { term: "Tokens added to agents' context", what: "Everything ANVC gave your agents so far, estimated at 4 characters a token.", why: "For scale: one request from your agent in a long session sends about 300,000 tokens." },
+  "stat-absorb-tokens": { term: "Tokens for goal updates", what: "What the small model used to update goals and writing rules, outside your sessions." },
+  absorb: {
+    term: "Goals, rules and map from your sessions",
+    what: "After your agent's turns, at most every half hour, a small model reads what's new and updates the goals, writing rules and map. It runs through your claude or codex login, apart from your agent.",
+    why: "The first update reads more: about 8,000 tokens with Claude Haiku. For scale, one request from your agent in a long session sends about 300,000."
+  },
+  "project-map": {
+    term: "Map",
+    what: "The parts of your project and how they connect: drawn from your code's imports, with what each part is for from your agent's notes."
+  },
   "project-status": {
     term: "Status",
     what: "What each agent session is doing now, the work finished recently and whether it's committed, pushed or released, and what's queued next.",
@@ -983,6 +1009,314 @@ function HelpedBlock() {
   }, undefined, false, undefined, this);
 }
 
+// server/stats.tsx
+var n2 = (x) => x.toLocaleString("en");
+var lead = (label) => label.slice(0, label.lastIndexOf(" ") + 1);
+var last = (label) => label.slice(label.lastIndexOf(" ") + 1);
+function Section({ title, counts }) {
+  const shown = counts.filter((c) => c.value > 0);
+  const zero = counts.filter((c) => c.value === 0);
+  return /* @__PURE__ */ u3("section", {
+    children: [
+      /* @__PURE__ */ u3("h3", {
+        children: title
+      }, undefined, false, undefined, this),
+      shown.length > 0 && /* @__PURE__ */ u3("div", {
+        class: "stat-list",
+        children: shown.map((c) => /* @__PURE__ */ u3("div", {
+          class: "stat",
+          children: [
+            /* @__PURE__ */ u3("span", {
+              class: "stat-value",
+              children: n2(c.value)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ u3("span", {
+              class: "stat-label",
+              children: [
+                lead(c.label),
+                /* @__PURE__ */ u3(Hint, {
+                  id: c.hint,
+                  children: last(c.label)
+                }, undefined, false, undefined, this)
+              ]
+            }, undefined, true, undefined, this),
+            c.note && /* @__PURE__ */ u3("span", {
+              class: "stat-note",
+              children: c.note
+            }, undefined, false, undefined, this)
+          ]
+        }, c.hint, true, undefined, this))
+      }, undefined, false, undefined, this),
+      zero.length > 0 && /* @__PURE__ */ u3("p", {
+        class: "stat-zero",
+        children: [
+          "Not yet: ",
+          zero.map((c) => c.label.toLowerCase()).join(", "),
+          "."
+        ]
+      }, undefined, true, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function StatsPage() {
+  const [s, setS] = d2(null);
+  const [error, setError] = d2("");
+  h2(() => {
+    getJson("/api/stats", { signal: AbortSignal.timeout(20000) }).then((v) => v.error ? setError(v.error) : setS(v)).catch(() => setError("Couldn't read the logs"));
+  }, []);
+  if (error)
+    return /* @__PURE__ */ u3("p", {
+      class: "settings-status is-error",
+      children: error
+    }, undefined, false, undefined, this);
+  if (!s)
+    return /* @__PURE__ */ u3("p", {
+      class: "map-empty",
+      children: "Counting…"
+    }, undefined, false, undefined, this);
+  if (!s.since)
+    return /* @__PURE__ */ u3("p", {
+      class: "goals-empty",
+      children: [
+        /* @__PURE__ */ u3("b", {
+          children: "Nothing yet."
+        }, undefined, false, undefined, this),
+        " ANVC hasn't done anything in this project so far."
+      ]
+    }, undefined, true, undefined, this);
+  return /* @__PURE__ */ u3("div", {
+    class: "stats",
+    children: [
+      /* @__PURE__ */ u3("p", {
+        class: "stats-since",
+        children: [
+          "Since ",
+          new Date(s.since).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ u3(Section, {
+        title: "For your agents",
+        counts: [
+          { value: s.shown, label: "Past attempts shown", hint: "stat-shown", note: `In ${n2(s.sessions)} session${s.sessions === 1 ? "" : "s"}` },
+          { value: s.stopped, label: "Commands stopped", hint: "stat-stopped", note: `${n2(s.notRunAgain)} not run again` },
+          { value: s.matched, label: "Errors matched to past work", hint: "stat-matched" },
+          { value: s.recovered, label: "Restored after compaction", hint: "stat-recovered" },
+          { value: s.rules, label: "Writing rules given", hint: "stat-rules" },
+          { value: s.asked, label: "Lookups by your agent", hint: "stat-asked" },
+          { value: s.avoided, label: "Dead ends avoided", hint: "stat-avoided", note: "Estimate" }
+        ]
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ u3(Section, {
+        title: "Recorded",
+        counts: [
+          { value: s.recorded, label: "Attempts with a reason", hint: "stat-recorded" },
+          { value: s.saved, label: "Attempts without a reason", hint: "stat-autosaved" },
+          { value: s.absorbed.updates, label: "Goal and rule updates", hint: "stat-absorbed" },
+          { value: s.confirmed, label: "Marked helpful", hint: "stat-confirmed" }
+        ]
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ u3(Section, {
+        title: "Cost",
+        counts: [
+          { value: Math.round(s.added / 4), label: "Tokens added to agents' context", hint: "stat-added", note: "Estimate, in total" },
+          { value: s.absorbed.tokens, label: "Tokens for goal updates", hint: "stat-absorb-tokens" }
+        ]
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+
+// server/sources.tsx
+var KIND = { page: "Page", search: "Search", document: "Document" };
+var nameOf = (s) => s.kind === "search" ? `“${s.query ?? ""}”` : s.url ?? s.path ?? "";
+var label = (s) => s.title ?? (s.path ? s.path.split(/[\\/]/).at(-1) : nameOf(s));
+function Kept({ id, pdf }) {
+  const [text, setText] = d2(undefined);
+  h2(() => {
+    getJson(`/api/sources?id=${encodeURIComponent(id)}`).then((v) => setText(v.source?.text ?? null)).catch(() => setText(null));
+  }, [id]);
+  if (text === undefined)
+    return /* @__PURE__ */ u3("p", {
+      class: "source-note",
+      children: "Reading…"
+    }, undefined, false, undefined, this);
+  if (text === null)
+    return /* @__PURE__ */ u3("p", {
+      class: "source-note",
+      children: [
+        "No text was kept.",
+        pdf && " Keeping a PDF's text needs pdftotext."
+      ]
+    }, undefined, true, undefined, this);
+  return /* @__PURE__ */ u3("pre", {
+    class: "source-text",
+    children: text
+  }, undefined, false, undefined, this);
+}
+function SourceRow({ s }) {
+  const [open, setOpen] = d2(false);
+  return /* @__PURE__ */ u3("details", {
+    class: "source-item",
+    onToggle: (e) => setOpen(e.currentTarget.open),
+    children: [
+      /* @__PURE__ */ u3("summary", {
+        children: [
+          /* @__PURE__ */ u3("span", {
+            class: `source-kind is-${s.kind}`,
+            children: KIND[s.kind]
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("span", {
+            class: "source-name",
+            children: label(s)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("span", {
+            class: "source-when",
+            children: when(s.ts)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("span", {
+            class: "source-meta",
+            children: [
+              "Session ",
+              /* @__PURE__ */ u3("code", {
+                children: s.session_id?.slice(0, 8) ?? "unknown"
+              }, undefined, false, undefined, this),
+              " · ",
+              s.agent_name,
+              s.chars === null && " · no text kept"
+            ]
+          }, undefined, true, undefined, this),
+          s.links.length > 0 && /* @__PURE__ */ u3("ul", {
+            class: "source-links",
+            children: s.links.map((l) => /* @__PURE__ */ u3("li", {
+              children: [
+                l.kind === "result" ? /* @__PURE__ */ u3("span", {
+                  class: "source-result",
+                  children: "Result"
+                }, undefined, false, undefined, this) : /* @__PURE__ */ u3(OutcomeBadge, {
+                  status: l.status
+                }, undefined, false, undefined, this),
+                /* @__PURE__ */ u3("span", {
+                  children: l.title || "No goal"
+                }, undefined, false, undefined, this),
+                /* @__PURE__ */ u3("small", {
+                  children: l.how === "session" ? "same session" : "names it"
+                }, undefined, false, undefined, this)
+              ]
+            }, l.id, true, undefined, this))
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ u3("div", {
+        class: "source-body",
+        children: [
+          label(s) !== nameOf(s) && /* @__PURE__ */ u3("p", {
+            class: "source-where",
+            children: /* @__PURE__ */ u3("code", {
+              children: nameOf(s)
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          /^https?:\/\//i.test(s.url ?? "") && /* @__PURE__ */ u3("p", {
+            class: "source-where",
+            children: /* @__PURE__ */ u3("a", {
+              href: s.url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              children: [
+                "Open the page ",
+                /* @__PURE__ */ u3(Icon, {
+                  name: "external-link",
+                  size: 13
+                }, undefined, false, undefined, this)
+              ]
+            }, undefined, true, undefined, this)
+          }, undefined, false, undefined, this),
+          s.asked && /* @__PURE__ */ u3("p", {
+            class: "source-asked",
+            children: [
+              /* @__PURE__ */ u3("b", {
+                children: "Asked"
+              }, undefined, false, undefined, this),
+              " ",
+              s.asked
+            ]
+          }, undefined, true, undefined, this),
+          open && /* @__PURE__ */ u3(Kept, {
+            id: s.id,
+            pdf: Boolean(s.path?.toLowerCase().endsWith(".pdf"))
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function SourcesPage() {
+  const [view, setView] = d2(null);
+  const [query, setQuery] = d2("");
+  h2(() => {
+    const t = setTimeout(() => {
+      getJson(`/api/sources?q=${encodeURIComponent(query.trim())}`).then(setView).catch(() => {});
+    }, query ? 250 : 0);
+    return () => clearTimeout(t);
+  }, [query]);
+  if (!view)
+    return /* @__PURE__ */ u3("p", {
+      class: "map-empty",
+      children: "Reading sources…"
+    }, undefined, false, undefined, this);
+  return /* @__PURE__ */ u3("div", {
+    class: "sources",
+    children: [
+      view.total > 0 && /* @__PURE__ */ u3("div", {
+        class: "filterbar sources-bar",
+        children: /* @__PURE__ */ u3("label", {
+          class: "search",
+          children: [
+            /* @__PURE__ */ u3(Icon, {
+              name: "search"
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ u3("input", {
+              type: "search",
+              "aria-label": "Search sources",
+              placeholder: "Search sources…",
+              value: query,
+              onInput: (e) => setQuery(e.currentTarget.value)
+            }, undefined, false, undefined, this)
+          ]
+        }, undefined, true, undefined, this)
+      }, undefined, false, undefined, this),
+      !view.on && /* @__PURE__ */ u3("p", {
+        class: "source-note",
+        children: "Sources are off here. Turn them on in Settings, under Raw log."
+      }, undefined, false, undefined, this),
+      view.on && !view.total && /* @__PURE__ */ u3("div", {
+        class: "results-empty",
+        children: [
+          /* @__PURE__ */ u3("h2", {
+            children: "No sources yet"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("p", {
+            children: "The pages your agent fetches, its web searches, and the papers and notes it reads outside the project are kept here, with the text it got back."
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      view.total > 0 && !view.sources.length && /* @__PURE__ */ u3("p", {
+        class: "source-note",
+        children: [
+          'No source holds "',
+          query,
+          '".'
+        ]
+      }, undefined, true, undefined, this),
+      view.sources.length > 0 && /* @__PURE__ */ u3("div", {
+        class: "source-list",
+        children: view.sources.map((s) => /* @__PURE__ */ u3(SourceRow, {
+          s
+        }, s.id, false, undefined, this))
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+
 // server/results.tsx
 var LABEL = { draft: "Draft", current: "Current", locked: "Locked", superseded: "Superseded", invalid: "Invalid" };
 var FILTERS = [["all", "All"], ["look", "Needs a look"], ["locked", "Locked"], ["current", "Current"], ["superseded", "Superseded"], ["invalid", "Invalid"]];
@@ -1001,6 +1335,7 @@ function FileLine({ path, state, now }) {
         children: path
       }, undefined, false, undefined, this),
       /* @__PURE__ */ u3("span", {
+        class: "state-badge",
         children: words
       }, undefined, false, undefined, this)
     ]
@@ -1139,248 +1474,319 @@ function Timeline({ results, byId, onJump }) {
     }, date, true, undefined, this))
   }, undefined, false, undefined, this);
 }
-function Card({ r, byId, onDecide, onJump }) {
+function Card({ r, byId, onDecide, onJump, focus }) {
+  const [open, setOpen] = d2(false);
   const [asking, setAsking] = d2(false);
   const [why, setWhy] = d2("");
+  h2(() => {
+    if (focus === r.id)
+      setOpen(true);
+  }, [focus]);
+  const verdict = r.status === "locked" ? r.check.stale ? "Locked, but something it depends on changed since. Worth a look before anyone re-runs it." : null : r.status === "invalid" ? "Don't use this value." : r.check.stale ? r.status === "draft" ? "Something it depends on changed since it was recorded. It's a draft, so it isn't flagged." : "Something it depends on changed since it was recorded." : null;
+  const facts = r.source || r.check.depends.length || r.check.derived.length || Object.keys(r.settings).length || r.used_in.length;
   return /* @__PURE__ */ u3("article", {
     id: `result-${r.id}`,
-    class: `result-card is-${r.status}${needsLook(r) ? " needs-look" : ""}`,
+    class: `result-card is-${r.status}${needsLook(r) ? " needs-look" : ""}${open ? " is-open" : ""}`,
     children: [
-      /* @__PURE__ */ u3("header", {
+      /* @__PURE__ */ u3("button", {
+        type: "button",
+        class: "result-row",
+        "aria-expanded": open,
+        onClick: () => setOpen(!open),
         children: [
-          /* @__PURE__ */ u3("div", {
+          /* @__PURE__ */ u3("span", {
+            class: "result-name",
             children: [
-              /* @__PURE__ */ u3("h3", {
+              /* @__PURE__ */ u3("b", {
                 children: r.name
               }, undefined, false, undefined, this),
               /* @__PURE__ */ u3("span", {
-                class: "result-when",
+                class: "result-sub",
                 children: [
-                  day(r.ts),
-                  r.after_the_fact ? " · recorded after the fact" : ""
+                  /* @__PURE__ */ u3("span", {
+                    class: "result-value",
+                    children: r.value
+                  }, undefined, false, undefined, this),
+                  /* @__PURE__ */ u3("span", {
+                    class: "result-when",
+                    children: [
+                      "· ",
+                      day(r.ts),
+                      r.after_the_fact ? ", recorded after the fact" : ""
+                    ]
+                  }, undefined, true, undefined, this)
                 ]
               }, undefined, true, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ u3("b", {
-            class: "result-value",
-            children: r.value
-          }, undefined, false, undefined, this),
           /* @__PURE__ */ u3("span", {
-            class: `result-status is-${r.status}`,
+            class: "result-pill",
             children: [
-              r.status === "locked" && /* @__PURE__ */ u3(Icon, {
-                name: "lock",
-                size: 13
-              }, undefined, false, undefined, this),
-              LABEL[r.status]
-            ]
-          }, undefined, true, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      r.status === "locked" && /* @__PURE__ */ u3("p", {
-        class: "result-verdict",
-        children: r.check.stale ? "Locked, but something it depends on changed since. Worth a look before anyone re-runs it." : "Locked, and nothing it depends on changed."
-      }, undefined, false, undefined, this),
-      r.status === "invalid" && /* @__PURE__ */ u3("p", {
-        class: "result-verdict",
-        children: "Don't use this value."
-      }, undefined, false, undefined, this),
-      r.status !== "locked" && r.status !== "invalid" && r.check.stale && /* @__PURE__ */ u3("p", {
-        class: "result-verdict",
-        children: "Something it depends on changed since it was recorded."
-      }, undefined, false, undefined, this),
-      r.why && /* @__PURE__ */ u3("p", {
-        class: "result-why",
-        children: r.why
-      }, undefined, false, undefined, this),
-      /* @__PURE__ */ u3("dl", {
-        class: "result-facts",
-        children: [
-          r.source && /* @__PURE__ */ u3(S, {
-            children: [
-              /* @__PURE__ */ u3("dt", {
-                children: "From"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("dd", {
-                children: /* @__PURE__ */ u3(FileLine, {
-                  path: `${r.source.path}${r.source.key ? ` → ${r.source.key}` : ""}`,
-                  state: r.check.source?.state ?? "unknown",
-                  now: r.check.source?.now
+              r.check.stale && !needsLook(r) && r.status !== "invalid" && /* @__PURE__ */ u3("span", {
+                class: "result-changed",
+                title: "Something it depends on changed since it was recorded",
+                children: /* @__PURE__ */ u3(Icon, {
+                  name: "triangle-alert",
+                  size: 14
                 }, undefined, false, undefined, this)
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
-          r.check.depends.length > 0 && /* @__PURE__ */ u3(S, {
-            children: [
-              /* @__PURE__ */ u3("dt", {
-                children: "Depends on"
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("dd", {
-                class: "result-depends",
-                children: r.check.depends.map((d) => /* @__PURE__ */ u3(FileLine, {
-                  path: d.path,
-                  state: d.state
-                }, d.path, false, undefined, this))
-              }, undefined, false, undefined, this)
+              r.proposed ? /* @__PURE__ */ u3("span", {
+                class: "result-flag is-ask",
+                title: "Your agent proposed a change. Open it to accept or keep it as it is.",
+                children: "Waiting for you"
+              }, undefined, false, undefined, this) : needsLook(r) ? /* @__PURE__ */ u3("span", {
+                class: "result-flag is-warn",
+                title: "Something it depends on changed since it was recorded.",
+                children: "Needs a look"
+              }, undefined, false, undefined, this) : /* @__PURE__ */ u3("span", {
+                class: `result-status is-${r.status}`,
+                children: [
+                  r.status === "locked" && /* @__PURE__ */ u3(Icon, {
+                    name: "lock",
+                    size: 13
+                  }, undefined, false, undefined, this),
+                  LABEL[r.status]
+                ]
+              }, undefined, true, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          r.check.derived.length > 0 && /* @__PURE__ */ u3(S, {
-            children: [
-              /* @__PURE__ */ u3("dt", {
-                children: "Computed from"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("dd", {
-                class: "result-depends",
-                children: r.check.derived.map((d) => /* @__PURE__ */ u3("button", {
-                  type: "button",
-                  class: "link-button",
-                  onClick: () => onJump(d.id),
-                  children: [
-                    d.name,
-                    " (",
-                    d.status,
-                    ")"
-                  ]
-                }, d.id, true, undefined, this))
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
-          r.command && /* @__PURE__ */ u3(S, {
-            children: [
-              /* @__PURE__ */ u3("dt", {
-                children: "Made by"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("dd", {
-                children: /* @__PURE__ */ u3("code", {
-                  class: "result-command",
-                  children: r.command
-                }, undefined, false, undefined, this)
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
-          Object.keys(r.settings).length > 0 && /* @__PURE__ */ u3(S, {
-            children: [
-              /* @__PURE__ */ u3("dt", {
-                children: "Settings"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("dd", {
-                class: "result-settings",
-                children: Object.entries(r.settings).map(([k, v]) => /* @__PURE__ */ u3("code", {
-                  children: [
-                    k,
-                    "=",
-                    v
-                  ]
-                }, k, true, undefined, this))
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
-          r.used_in.length > 0 && /* @__PURE__ */ u3(S, {
-            children: [
-              /* @__PURE__ */ u3("dt", {
-                children: "Used in"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("dd", {
-                children: r.used_in.join(" · ")
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      /* @__PURE__ */ u3(Lineage, {
-        r,
-        byId,
-        onJump
-      }, undefined, false, undefined, this),
-      r.proposed && /* @__PURE__ */ u3("div", {
-        class: "result-proposal",
-        children: [
-          /* @__PURE__ */ u3("p", {
-            children: [
-              r.proposed.status === "locked" ? "Your agent proposed locking this" : `Your agent proposed marking this ${LABEL[r.proposed.status].toLowerCase()}`,
-              r.proposed.why ? `: ${r.proposed.why}` : "."
-            ]
-          }, undefined, true, undefined, this),
-          /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button primary",
-            onClick: () => onDecide({ id: r.id, status: r.proposed.status, why: r.proposed.why }),
-            children: r.proposed.status === "locked" ? "Lock" : `Mark ${LABEL[r.proposed.status].toLowerCase()}`
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button",
-            onClick: () => onDecide({ id: r.id, status: r.status, why: "Kept as it was." }),
-            children: "Keep as it is"
+          /* @__PURE__ */ u3(Icon, {
+            name: open ? "chevron-up" : "chevron-down",
+            size: 16
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ u3("footer", {
-        class: "result-actions",
+      open && /* @__PURE__ */ u3("div", {
+        class: "result-body",
         children: [
-          r.status === "locked" ? /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button",
-            onClick: () => onDecide({ id: r.id, status: "current", why: "Unlocked." }),
-            children: "Unlock"
-          }, undefined, false, undefined, this) : r.status !== "invalid" && r.proposed?.status !== "locked" && /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button",
-            onClick: () => onDecide({ id: r.id, status: "locked", why: "Locked." }),
+          verdict && /* @__PURE__ */ u3("p", {
+            class: `result-verdict${needsLook(r) || r.status === "invalid" ? "" : " is-quiet"}`,
             children: [
               /* @__PURE__ */ u3(Icon, {
-                name: "lock",
+                name: "triangle-alert",
                 size: 14
               }, undefined, false, undefined, this),
-              " Lock"
+              verdict
             ]
           }, undefined, true, undefined, this),
-          r.status !== "invalid" && !asking && /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button",
-            onClick: () => setAsking(true),
-            children: "Mark invalid"
-          }, undefined, false, undefined, this),
-          r.status === "invalid" && /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button",
-            onClick: () => onDecide({ id: r.id, status: "current", why: "Valid again." }),
-            children: "Mark valid"
-          }, undefined, false, undefined, this),
-          asking && /* @__PURE__ */ u3("form", {
-            class: "result-invalid",
-            onSubmit: (e) => {
-              e.preventDefault();
-              onDecide({ id: r.id, status: "invalid", why: why.trim() || "Marked invalid." });
-              setAsking(false);
-            },
+          (r.proposed || needsLook(r)) && /* @__PURE__ */ u3("p", {
+            class: "result-state",
             children: [
-              /* @__PURE__ */ u3("input", {
-                id: `why-${r.id}`,
-                value: why,
-                onInput: (e) => setWhy(e.currentTarget.value),
-                placeholder: "Why is it wrong?",
-                "aria-label": "Why is it wrong?"
+              "Status: ",
+              /* @__PURE__ */ u3("b", {
+                children: LABEL[r.status]
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          r.why && /* @__PURE__ */ u3("section", {
+            class: "result-section",
+            children: [
+              /* @__PURE__ */ u3("h4", {
+                children: "Why"
               }, undefined, false, undefined, this),
+              /* @__PURE__ */ u3("p", {
+                class: "result-why",
+                children: r.why
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          facts ? /* @__PURE__ */ u3("section", {
+            class: "result-section",
+            children: [
+              /* @__PURE__ */ u3("h4", {
+                children: "Where it came from"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ u3("dl", {
+                class: "result-facts",
+                children: [
+                  r.source && /* @__PURE__ */ u3(S, {
+                    children: [
+                      /* @__PURE__ */ u3("dt", {
+                        children: "From"
+                      }, undefined, false, undefined, this),
+                      /* @__PURE__ */ u3("dd", {
+                        children: /* @__PURE__ */ u3(FileLine, {
+                          path: `${r.source.path}${r.source.key ? ` → ${r.source.key}` : ""}`,
+                          state: r.check.source?.state ?? "unknown",
+                          now: r.check.source?.now
+                        }, undefined, false, undefined, this)
+                      }, undefined, false, undefined, this)
+                    ]
+                  }, undefined, true, undefined, this),
+                  r.check.depends.length > 0 && /* @__PURE__ */ u3(S, {
+                    children: [
+                      /* @__PURE__ */ u3("dt", {
+                        children: "Depends on"
+                      }, undefined, false, undefined, this),
+                      /* @__PURE__ */ u3("dd", {
+                        class: "result-depends",
+                        children: r.check.depends.map((d) => /* @__PURE__ */ u3(FileLine, {
+                          path: d.path,
+                          state: d.state
+                        }, d.path, false, undefined, this))
+                      }, undefined, false, undefined, this)
+                    ]
+                  }, undefined, true, undefined, this),
+                  r.check.derived.length > 0 && /* @__PURE__ */ u3(S, {
+                    children: [
+                      /* @__PURE__ */ u3("dt", {
+                        children: "Computed from"
+                      }, undefined, false, undefined, this),
+                      /* @__PURE__ */ u3("dd", {
+                        class: "result-depends",
+                        children: r.check.derived.map((d) => /* @__PURE__ */ u3("button", {
+                          type: "button",
+                          class: "link-button",
+                          onClick: () => onJump(d.id),
+                          children: [
+                            d.name,
+                            " (",
+                            d.status,
+                            ")"
+                          ]
+                        }, d.id, true, undefined, this))
+                      }, undefined, false, undefined, this)
+                    ]
+                  }, undefined, true, undefined, this),
+                  Object.keys(r.settings).length > 0 && /* @__PURE__ */ u3(S, {
+                    children: [
+                      /* @__PURE__ */ u3("dt", {
+                        children: "Settings"
+                      }, undefined, false, undefined, this),
+                      /* @__PURE__ */ u3("dd", {
+                        class: "result-settings",
+                        children: Object.entries(r.settings).map(([k, v]) => /* @__PURE__ */ u3("code", {
+                          children: [
+                            k,
+                            "=",
+                            v
+                          ]
+                        }, k, true, undefined, this))
+                      }, undefined, false, undefined, this)
+                    ]
+                  }, undefined, true, undefined, this),
+                  r.used_in.length > 0 && /* @__PURE__ */ u3(S, {
+                    children: [
+                      /* @__PURE__ */ u3("dt", {
+                        children: "Used in"
+                      }, undefined, false, undefined, this),
+                      /* @__PURE__ */ u3("dd", {
+                        children: r.used_in.join(" · ")
+                      }, undefined, false, undefined, this)
+                    ]
+                  }, undefined, true, undefined, this)
+                ]
+              }, undefined, true, undefined, this)
+            ]
+          }, undefined, true, undefined, this) : null,
+          r.command && /* @__PURE__ */ u3("section", {
+            class: "result-section",
+            children: [
+              /* @__PURE__ */ u3("h4", {
+                children: "Made by"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ u3("pre", {
+                class: "result-command",
+                children: r.command
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          /* @__PURE__ */ u3(Lineage, {
+            r,
+            byId,
+            onJump
+          }, undefined, false, undefined, this),
+          r.proposed && /* @__PURE__ */ u3("div", {
+            class: "result-proposal",
+            children: [
+              /* @__PURE__ */ u3("p", {
+                children: [
+                  r.proposed.status === "locked" ? "Your agent proposed locking this" : `Your agent proposed marking this ${LABEL[r.proposed.status].toLowerCase()}`,
+                  r.proposed.why ? `: ${r.proposed.why}` : "."
+                ]
+              }, undefined, true, undefined, this),
               /* @__PURE__ */ u3("button", {
-                type: "submit",
+                type: "button",
                 class: "button primary",
-                children: "Mark invalid"
+                onClick: () => onDecide({ id: r.id, status: r.proposed.status, why: r.proposed.why }),
+                children: r.proposed.status === "locked" ? "Lock" : `Mark ${LABEL[r.proposed.status].toLowerCase()}`
               }, undefined, false, undefined, this),
               /* @__PURE__ */ u3("button", {
                 type: "button",
                 class: "button",
-                onClick: () => setAsking(false),
-                children: "Cancel"
+                onClick: () => onDecide({ id: r.id, status: r.status, why: "Kept as it was." }),
+                children: "Keep as it is"
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ u3("span", {
-            class: "result-id",
+          /* @__PURE__ */ u3("footer", {
+            class: "result-actions",
             children: [
-              "id ",
-              r.id
+              r.status === "locked" ? /* @__PURE__ */ u3("button", {
+                type: "button",
+                class: "button",
+                onClick: () => onDecide({ id: r.id, status: "current", why: "Unlocked." }),
+                children: "Unlock"
+              }, undefined, false, undefined, this) : r.status !== "invalid" && r.proposed?.status !== "locked" && /* @__PURE__ */ u3("button", {
+                type: "button",
+                class: "button",
+                title: "Mark it final, so your agent doesn't re-run or replace it",
+                onClick: () => onDecide({ id: r.id, status: "locked", why: "Locked." }),
+                children: [
+                  /* @__PURE__ */ u3(Icon, {
+                    name: "lock",
+                    size: 14
+                  }, undefined, false, undefined, this),
+                  " Lock"
+                ]
+              }, undefined, true, undefined, this),
+              r.status !== "invalid" && !asking && /* @__PURE__ */ u3("button", {
+                type: "button",
+                class: "button",
+                onClick: () => setAsking(true),
+                children: "Mark invalid"
+              }, undefined, false, undefined, this),
+              r.status === "invalid" && /* @__PURE__ */ u3("button", {
+                type: "button",
+                class: "button",
+                onClick: () => onDecide({ id: r.id, status: "current", why: "Valid again." }),
+                children: "Mark valid"
+              }, undefined, false, undefined, this),
+              asking && /* @__PURE__ */ u3("form", {
+                class: "result-invalid",
+                onSubmit: (e) => {
+                  e.preventDefault();
+                  onDecide({ id: r.id, status: "invalid", why: why.trim() || "Marked invalid." });
+                  setAsking(false);
+                },
+                children: [
+                  /* @__PURE__ */ u3("input", {
+                    id: `why-${r.id}`,
+                    value: why,
+                    onInput: (e) => setWhy(e.currentTarget.value),
+                    placeholder: "Why is it wrong?",
+                    "aria-label": "Why is it wrong?"
+                  }, undefined, false, undefined, this),
+                  /* @__PURE__ */ u3("button", {
+                    type: "submit",
+                    class: "button primary",
+                    children: "Mark invalid"
+                  }, undefined, false, undefined, this),
+                  /* @__PURE__ */ u3("button", {
+                    type: "button",
+                    class: "button",
+                    onClick: () => setAsking(false),
+                    children: "Cancel"
+                  }, undefined, false, undefined, this)
+                ]
+              }, undefined, true, undefined, this),
+              /* @__PURE__ */ u3("span", {
+                class: "result-id",
+                children: [
+                  "id ",
+                  r.id
+                ]
+              }, undefined, true, undefined, this)
             ]
           }, undefined, true, undefined, this)
         ]
@@ -1468,6 +1874,10 @@ function DocumentCheck() {
             class: "link-button",
             onClick: () => setChecked(null),
             children: "Close"
+          }, undefined, false, undefined, this),
+          !checked && /* @__PURE__ */ u3("span", {
+            class: "doc-check-hint",
+            children: "Finds where each number in it came from."
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -1595,6 +2005,57 @@ function Printed({ title, rows }) {
   }, undefined, true, undefined, this);
 }
 var printed = (o) => ({ key: o.ts + o.command, ts: o.ts, what: o.command, note: o.line });
+var HUB = [["results", "Results"], ["sources", "Sources"]];
+var savedTab = () => {
+  try {
+    return localStorage.getItem("anvc.results.tab") === "sources" ? "sources" : "results";
+  } catch {
+    return "results";
+  }
+};
+function ResultsHub() {
+  const [tab, setTab] = d2(savedTab);
+  const pick = (t) => {
+    setTab(t);
+    try {
+      localStorage.setItem("anvc.results.tab", t);
+    } catch {}
+  };
+  return /* @__PURE__ */ u3("div", {
+    class: "project-page",
+    children: [
+      /* @__PURE__ */ u3("div", {
+        class: "filterbar",
+        children: [
+          /* @__PURE__ */ u3("div", {
+            class: "filter-tabs",
+            role: "tablist",
+            "aria-label": "Results and sources",
+            children: HUB.map(([id, label]) => /* @__PURE__ */ u3("button", {
+              type: "button",
+              role: "tab",
+              "aria-selected": tab === id,
+              class: tab === id ? "current" : "",
+              onClick: () => pick(id),
+              children: label
+            }, id, false, undefined, this))
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("span", {
+            class: "project-info",
+            children: /* @__PURE__ */ u3(Hint, {
+              id: `hub-${tab}`
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ u3("div", {
+        class: "project-panel",
+        role: "tabpanel",
+        children: tab === "results" ? /* @__PURE__ */ u3(ResultsPage, {}, undefined, false, undefined, this) : /* @__PURE__ */ u3(SourcesPage, {}, undefined, false, undefined, this)
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
 function ResultsPage() {
   const [view, setView] = d2(null);
   const [filter, setFilter] = d2("all");
@@ -1615,6 +2076,7 @@ function ResultsPage() {
     return () => clearTimeout(t);
   }, [query]);
   const byId = T2(() => new Map((view?.results ?? []).map((r) => [r.id, r])), [view]);
+  const [focus, setFocus] = d2(null);
   if (!view)
     return /* @__PURE__ */ u3("p", {
       class: "map-empty",
@@ -1626,6 +2088,7 @@ function ResultsPage() {
       setView(next);
   };
   const onJump = (id) => {
+    setFocus(id);
     setFilter("all");
     setQuery("");
     setMode("parts");
@@ -1666,44 +2129,18 @@ function ResultsPage() {
       /* @__PURE__ */ u3("div", {
         class: "filterbar results-bar",
         children: [
-          /* @__PURE__ */ u3("div", {
-            class: "filter-tabs",
-            role: "group",
-            "aria-label": "Filter by status",
-            children: FILTERS.filter(([key]) => key === "all" || count(key) > 0).map(([key, label]) => /* @__PURE__ */ u3("button", {
-              type: "button",
-              "aria-pressed": filter === key,
-              class: `${filter === key ? "current" : ""}${key === "look" ? " tab-missing" : ""}`,
-              onClick: () => setFilter(key),
-              children: [
-                label,
-                /* @__PURE__ */ u3("span", {
-                  children: count(key)
-                }, undefined, false, undefined, this)
-              ]
-            }, key, true, undefined, this))
+          /* @__PURE__ */ u3(Segmented, {
+            label: "Filter by status",
+            value: filter,
+            options: FILTERS.filter(([key]) => key === "all" || count(key) > 0).map(([key, label]) => [key, `${label} ${count(key)}`]),
+            onChange: setFilter
           }, undefined, false, undefined, this),
-          view.results.length > 0 && /* @__PURE__ */ u3("div", {
-            class: "filter-tabs results-mode",
-            role: "group",
-            "aria-label": "Show",
-            children: [
-              /* @__PURE__ */ u3("button", {
-                type: "button",
-                "aria-pressed": mode === "parts",
-                class: mode === "parts" ? "current" : "",
-                onClick: () => setMode("parts"),
-                children: "By part"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("button", {
-                type: "button",
-                "aria-pressed": mode === "timeline",
-                class: mode === "timeline" ? "current" : "",
-                onClick: () => setMode("timeline"),
-                children: "Timeline"
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
+          view.results.length > 0 && /* @__PURE__ */ u3(Segmented, {
+            label: "Show",
+            value: mode,
+            options: [["parts", "By part"], ["timeline", "Timeline"]],
+            onChange: setMode
+          }, undefined, false, undefined, this),
           /* @__PURE__ */ u3("label", {
             class: "search",
             children: [
@@ -1714,7 +2151,7 @@ function ResultsPage() {
                 id: "results-search",
                 type: "search",
                 "aria-label": "Find a number or a result",
-                placeholder: "Find a number or a result…",
+                placeholder: "Search results…",
                 value: query,
                 onInput: (e) => setQuery(e.currentTarget.value)
               }, undefined, false, undefined, this)
@@ -1781,13 +2218,27 @@ function ResultsPage() {
         class: "results-part",
         children: [
           parts.size > 1 || part ? /* @__PURE__ */ u3("h2", {
-            children: part || "Other"
-          }, undefined, false, undefined, this) : null,
+            class: "part-head",
+            children: [
+              "Part: ",
+              part || "Other",
+              /* @__PURE__ */ u3("span", {
+                children: [
+                  "· ",
+                  plural(list.length, "result")
+                ]
+              }, undefined, true, undefined, this),
+              /* @__PURE__ */ u3(Hint, {
+                id: "result-part"
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this) : null,
           list.map((r) => /* @__PURE__ */ u3(Card, {
             r,
             byId,
             onDecide: (b) => void onDecide(b),
-            onJump
+            onJump,
+            focus
           }, r.id, false, undefined, this))
         ]
       }, part, true, undefined, this))
@@ -1852,6 +2303,161 @@ function DataSettings() {
             }, undefined, false, undefined, this)
           ]
         }, key, true, undefined, this))
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+
+// server/absorb.tsx
+async function decide2(body) {
+  const r = await send("/api/absorb", body);
+  return r.ok ? await r.json() : null;
+}
+function useView() {
+  const [view, setView] = d2(null);
+  h2(() => {
+    getJson("/api/absorb").then(setView).catch(() => {});
+  }, []);
+  return [view, setView];
+}
+var tokens = (n) => n.toLocaleString("en");
+var TITLE = {
+  goals: "Goals aren't updated from your sessions",
+  rules: "Writing rules aren't updated from your sessions",
+  map: "The map isn't updated from your sessions"
+};
+function AbsorbNote({ what }) {
+  const [view, setView] = useView();
+  if (!view)
+    return null;
+  const { mode, from } = view.setting;
+  const choose = (next) => void decide2({ mode: next }).then((v) => v && setView(v));
+  if (mode === "off") {
+    const runners = Object.entries(view.modes).filter(([key]) => key !== "off" && view.available[key]);
+    return /* @__PURE__ */ u3("div", {
+      class: "absorb-off",
+      children: [
+        /* @__PURE__ */ u3("div", {
+          class: "absorb-text",
+          children: [
+            /* @__PURE__ */ u3("p", {
+              class: "absorb-title",
+              children: /* @__PURE__ */ u3(Hint, {
+                id: "absorb",
+                children: TITLE[what]
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ u3("p", {
+              children: [
+                from === "project" ? "It's off for this project. " : from === "everywhere" ? "It's off for every project. " : "It's off. ",
+                "When it's on, a small model updates them after your agent's turns. It doesn't use your agent's context."
+              ]
+            }, undefined, true, undefined, this)
+          ]
+        }, undefined, true, undefined, this),
+        runners.length ? /* @__PURE__ */ u3("div", {
+          class: "presets absorb-choices",
+          children: runners.map(([key, m]) => /* @__PURE__ */ u3("button", {
+            type: "button",
+            class: "preset",
+            onClick: () => choose(key),
+            children: [
+              /* @__PURE__ */ u3("b", {
+                children: [
+                  "Use ",
+                  m.label
+                ]
+              }, undefined, true, undefined, this),
+              /* @__PURE__ */ u3("span", {
+                class: "preset-cost",
+                children: m.tokens
+              }, undefined, false, undefined, this)
+            ]
+          }, key, true, undefined, this))
+        }, undefined, false, undefined, this) : /* @__PURE__ */ u3("p", {
+          class: "absorb-missing",
+          children: "It needs the claude or codex command, and neither is installed here."
+        }, undefined, false, undefined, this)
+      ]
+    }, undefined, true, undefined, this);
+  }
+  return /* @__PURE__ */ u3("p", {
+    class: "absorb-on",
+    children: [
+      "Kept up to date from your sessions by ",
+      view.modes[mode]?.label ?? mode,
+      view.last ? ` · last updated ${when(view.last.ran)} · ${tokens(view.last.tokens)} tokens over ${view.last.runs} update${view.last.runs === 1 ? "" : "s"}` : " · no update yet",
+      /* @__PURE__ */ u3("button", {
+        type: "button",
+        class: "link-button",
+        onClick: () => choose("off"),
+        children: "Turn off"
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function AbsorbSettings() {
+  const [view, setView] = useView();
+  const [scope, setScope] = d2(null);
+  h2(() => {
+    if (view && !scope)
+      setScope(view.setting.from === "project" ? "project" : "everywhere");
+  }, [view]);
+  if (!view || !scope)
+    return null;
+  const current = scope === "project" ? view.setting.mode : view.everywhere;
+  const save = async (mode) => {
+    const next = await decide2({ mode, scope });
+    if (next)
+      setView(next);
+  };
+  return /* @__PURE__ */ u3("section", {
+    class: "assist",
+    children: [
+      /* @__PURE__ */ u3("h3", {
+        children: "Goals, writing rules and map from your sessions"
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ u3("p", {
+        class: "settings-sub",
+        children: /* @__PURE__ */ u3(Hint, {
+          id: "absorb",
+          children: "A small model keeps them up to date for you to see, outside the session."
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ u3(Scope, {
+        scope,
+        own: view.setting.from === "project",
+        onScope: setScope,
+        onFollow: () => void decide2({ scope: "follow" }).then((v) => {
+          if (v) {
+            setView(v);
+            setScope("everywhere");
+          }
+        })
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ u3("div", {
+        class: "presets",
+        children: Object.entries(view.modes).map(([key, m]) => {
+          const missing = key !== "off" && !view.available[key];
+          return /* @__PURE__ */ u3("button", {
+            type: "button",
+            class: `preset${current === key ? " is-on" : ""}`,
+            disabled: missing,
+            onClick: () => void save(key),
+            children: [
+              /* @__PURE__ */ u3("b", {
+                children: m.label
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ u3("span", {
+                children: missing ? `Needs the ${key} command, which isn't installed here.` : m.what
+              }, undefined, false, undefined, this),
+              !missing && m.tokens && /* @__PURE__ */ u3("span", {
+                class: "preset-cost",
+                children: m.tokens
+              }, undefined, false, undefined, this)
+            ]
+          }, key, true, undefined, this);
+        })
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -3012,6 +3618,7 @@ function Settings() {
     children: [
       /* @__PURE__ */ u3(AssistSettings, {}, undefined, false, undefined, this),
       /* @__PURE__ */ u3(DataSettings, {}, undefined, false, undefined, this),
+      /* @__PURE__ */ u3(AbsorbSettings, {}, undefined, false, undefined, this),
       local !== null && /* @__PURE__ */ u3(LocalOnly, {
         on: local,
         onChange: (on) => void changeLocal(on)
@@ -3748,6 +4355,355 @@ function Choose({ open, onClose, onCustomise }) {
       ]
     }, undefined, true, undefined, this)
   }, undefined, false, undefined, this);
+}
+
+// server/goals.tsx
+var LABEL2 = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped" };
+var STATUSES = Object.entries(LABEL2);
+var MARKED = { todo: "Marked to do", doing: "Marked in progress", done: "Marked done", dropped: "Dropped" };
+var same = (a, b) => a.title === b.title && a.status === b.status;
+function what(v, before) {
+  if (!before)
+    return "Added";
+  const parts = [
+    ...v.title !== before.title ? [`Renamed from “${before.title}”`] : [],
+    ...v.status !== before.status ? [MARKED[v.status]] : []
+  ];
+  return parts.join(", ") || "No change";
+}
+var who = (v) => v.from ? `${v.agent} on ${v.from}` : v.by === "person" ? "You" : `${v.agent}, session ${v.session.slice(0, 8)}`;
+function History({ goal, save }) {
+  let last, waiting;
+  const rows = goal.versions.map((v) => {
+    const row = { v, what: what(v, last), before: last };
+    if (!v.counts)
+      return row;
+    if (v.proposed) {
+      row.what = last ? `Proposed: ${row.what}` : "Proposed";
+      waiting = v;
+      last ??= v;
+      return row;
+    }
+    if (waiting) {
+      if (same(v, waiting))
+        row.what = "Accepted";
+      else if (same(v, last) || waiting.id === goal.id && v.status === "dropped" && v.title === waiting.title)
+        row.what = "Declined";
+    }
+    last = v;
+    waiting = undefined;
+    return row;
+  });
+  const latest = rows.findLast((r) => r.v.counts && !r.v.proposed);
+  return /* @__PURE__ */ u3("section", {
+    class: "goal-section",
+    children: [
+      /* @__PURE__ */ u3("h4", {
+        children: "History"
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ u3("ol", {
+        class: "goal-history",
+        children: rows.map((r) => /* @__PURE__ */ u3("li", {
+          class: r.v.counts ? "" : "is-ignored",
+          children: [
+            /* @__PURE__ */ u3("time", {
+              children: when(r.v.ts)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ u3("div", {
+              children: [
+                /* @__PURE__ */ u3("p", {
+                  children: [
+                    /* @__PURE__ */ u3("span", {
+                      children: r.what
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ u3("span", {
+                      class: "goal-who",
+                      children: who(r.v)
+                    }, undefined, false, undefined, this),
+                    !r.v.counts && /* @__PURE__ */ u3("span", {
+                      class: "goal-who",
+                      children: "not applied"
+                    }, undefined, false, undefined, this),
+                    r === latest && r.before && !same(r.v, r.before) && /* @__PURE__ */ u3("button", {
+                      type: "button",
+                      class: "link-button",
+                      onClick: () => void save({
+                        id: goal.id,
+                        title: r.before.title,
+                        status: r.before.status,
+                        why: `Undid: ${r.what}`
+                      }),
+                      children: "Undo"
+                    }, undefined, false, undefined, this)
+                  ]
+                }, undefined, true, undefined, this),
+                r.v.why && r.v.id !== goal.id && /* @__PURE__ */ u3("small", {
+                  children: r.v.why
+                }, undefined, false, undefined, this)
+              ]
+            }, undefined, true, undefined, this)
+          ]
+        }, r.v.id, true, undefined, this))
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function Proposed({ goal, save }) {
+  const p = goal.proposal;
+  return /* @__PURE__ */ u3("div", {
+    class: "goal-proposal",
+    children: [
+      /* @__PURE__ */ u3("p", {
+        children: [
+          /* @__PURE__ */ u3("b", {
+            children: p.added ? "Proposed" : `Proposed: ${what(p, goal)}`
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("span", {
+            class: "goal-who",
+            children: who(p)
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      p.why && !(p.added && p.id === goal.id) && /* @__PURE__ */ u3("small", {
+        children: p.why
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ u3("div", {
+        class: "goal-actions",
+        children: [
+          /* @__PURE__ */ u3("button", {
+            type: "button",
+            class: "button primary",
+            onClick: () => void save({ id: goal.id, answer: "accept" }),
+            children: "Accept"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("button", {
+            type: "button",
+            class: "button",
+            onClick: () => void save({ id: goal.id, answer: "decline" }),
+            children: "Decline"
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function GoalItem({ goal, save }) {
+  const [open, setOpen] = d2(false);
+  const [form, setForm] = d2(null);
+  const done = (ok) => {
+    if (ok)
+      setForm(null);
+  };
+  return /* @__PURE__ */ u3("li", {
+    class: `goal is-${goal.status}`,
+    children: [
+      /* @__PURE__ */ u3("button", {
+        type: "button",
+        class: "goal-row",
+        "aria-expanded": open,
+        onClick: () => setOpen(!open),
+        children: [
+          /* @__PURE__ */ u3("span", {
+            class: `goal-status is-${goal.status}`,
+            children: LABEL2[goal.status]
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("span", {
+            class: "goal-title",
+            children: goal.title
+          }, undefined, false, undefined, this),
+          goal.from && /* @__PURE__ */ u3("span", {
+            class: "goal-from",
+            children: [
+              "from ",
+              goal.from
+            ]
+          }, undefined, true, undefined, this),
+          goal.proposal && /* @__PURE__ */ u3("span", {
+            class: "goal-proposed",
+            children: goal.proposal.added ? "Proposed" : "Change proposed"
+          }, undefined, false, undefined, this),
+          goal.total > 0 && /* @__PURE__ */ u3("span", {
+            class: "goal-progress",
+            children: [
+              goal.done,
+              " of ",
+              goal.total,
+              " done"
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      open && /* @__PURE__ */ u3("div", {
+        class: "goal-detail",
+        children: [
+          goal.why && /* @__PURE__ */ u3("p", {
+            class: "goal-why",
+            children: goal.why
+          }, undefined, false, undefined, this),
+          goal.proposal && /* @__PURE__ */ u3(Proposed, {
+            goal,
+            save
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("div", {
+            class: "goal-actions",
+            children: [
+              /* @__PURE__ */ u3(Segmented, {
+                label: "Status",
+                value: goal.status,
+                options: STATUSES,
+                onChange: (status) => void save({ id: goal.id, status })
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ u3("button", {
+                type: "button",
+                class: "button",
+                onClick: () => setForm("rename"),
+                children: [
+                  /* @__PURE__ */ u3(Icon, {
+                    name: "pencil",
+                    size: 14
+                  }, undefined, false, undefined, this),
+                  "Rename"
+                ]
+              }, undefined, true, undefined, this),
+              /* @__PURE__ */ u3("button", {
+                type: "button",
+                class: "button",
+                onClick: () => setForm("sub"),
+                children: [
+                  /* @__PURE__ */ u3(Icon, {
+                    name: "plus",
+                    size: 14
+                  }, undefined, false, undefined, this),
+                  "Add sub-goal"
+                ]
+              }, undefined, true, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          form === "rename" && /* @__PURE__ */ u3(TitleForm, {
+            label: "Title",
+            submit: "Save",
+            initial: goal.title,
+            onSave: (title) => void save({ id: goal.id, title }).then(done),
+            onCancel: () => setForm(null)
+          }, undefined, false, undefined, this),
+          form === "sub" && /* @__PURE__ */ u3(TitleForm, {
+            label: "Sub-goal",
+            submit: "Add",
+            onSave: (title) => void save({ parent: goal.id, title }).then(done),
+            onCancel: () => setForm(null)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3(History, {
+            goal,
+            save
+          }, undefined, false, undefined, this),
+          goal.attempts.length > 0 && /* @__PURE__ */ u3("section", {
+            class: "goal-section",
+            children: [
+              /* @__PURE__ */ u3("h4", {
+                children: "Attempts"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ u3("ul", {
+                class: "goal-attempts",
+                children: goal.attempts.map((a) => /* @__PURE__ */ u3("li", {
+                  children: [
+                    /* @__PURE__ */ u3(OutcomeBadge, {
+                      status: a.status
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ u3("span", {
+                      children: a.intent || "No goal recorded"
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ u3("time", {
+                      children: when(a.ts)
+                    }, undefined, false, undefined, this)
+                  ]
+                }, a.id, true, undefined, this))
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          /* @__PURE__ */ u3("span", {
+            class: "goal-id",
+            children: [
+              "id ",
+              goal.id
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      goal.subgoals.length > 0 && /* @__PURE__ */ u3("ul", {
+        class: "goal-list",
+        children: goal.subgoals.map((s) => /* @__PURE__ */ u3(GoalItem, {
+          goal: s,
+          save
+        }, s.id, false, undefined, this))
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function Goals() {
+  const { data, error, save } = useLive("/api/goals");
+  const [adding, setAdding] = d2(false);
+  if (!data)
+    return null;
+  const { goals } = data;
+  const live = goals.filter((g) => g.status !== "dropped");
+  return /* @__PURE__ */ u3("section", {
+    class: "goals",
+    children: [
+      /* @__PURE__ */ u3("header", {
+        class: "goals-head",
+        children: [
+          /* @__PURE__ */ u3("h2", {
+            children: "Goals"
+          }, undefined, false, undefined, this),
+          live.length > 0 && /* @__PURE__ */ u3("span", {
+            class: "goal-progress",
+            children: [
+              live.filter((g) => g.status === "done").length,
+              " of ",
+              live.length,
+              " done"
+            ]
+          }, undefined, true, undefined, this),
+          !adding && /* @__PURE__ */ u3("button", {
+            type: "button",
+            class: "button",
+            onClick: () => setAdding(true),
+            children: [
+              /* @__PURE__ */ u3(Icon, {
+                name: "plus",
+                size: 14
+              }, undefined, false, undefined, this),
+              "Add goal"
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ u3(AbsorbNote, {
+        what: "goals"
+      }, undefined, false, undefined, this),
+      error && /* @__PURE__ */ u3("p", {
+        class: "settings-status is-error",
+        children: error
+      }, undefined, false, undefined, this),
+      adding && /* @__PURE__ */ u3(TitleForm, {
+        label: "Goal",
+        submit: "Add",
+        onSave: (title) => void save({ title }).then((ok) => ok && setAdding(false)),
+        onCancel: () => setAdding(false)
+      }, undefined, false, undefined, this),
+      !goals.length && !adding && /* @__PURE__ */ u3("p", {
+        class: "goals-empty",
+        children: "No goals yet."
+      }, undefined, false, undefined, this),
+      goals.length > 0 && /* @__PURE__ */ u3("ul", {
+        class: "goal-list",
+        children: goals.map((g) => /* @__PURE__ */ u3(GoalItem, {
+          goal: g,
+          save
+        }, g.id, false, undefined, this))
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
 }
 
 // server/map.tsx
@@ -4541,16 +5497,14 @@ function ProjectMap() {
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      drawn.nodes.length === 0 ? /* @__PURE__ */ u3("div", {
-        class: "map-blank",
+      drawn.nodes.length === 0 ? /* @__PURE__ */ u3(S, {
         children: [
-          /* @__PURE__ */ u3("p", {
-            class: "map-blank-head",
-            children: "Nothing mapped yet."
+          /* @__PURE__ */ u3(AbsorbNote, {
+            what: "map"
           }, undefined, false, undefined, this),
           /* @__PURE__ */ u3("p", {
-            class: "detail-prose",
-            children: "Ask your agent to describe how the project fits together."
+            class: "goals-empty",
+            children: "Nothing mapped yet."
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this) : /* @__PURE__ */ u3("div", {
@@ -4576,357 +5530,6 @@ function ProjectMap() {
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this)
-    ]
-  }, undefined, true, undefined, this);
-}
-
-// server/goals.tsx
-var LABEL2 = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped" };
-var STATUSES = Object.entries(LABEL2);
-var MARKED = { todo: "Marked to do", doing: "Marked in progress", done: "Marked done", dropped: "Dropped" };
-var same = (a, b) => a.title === b.title && a.status === b.status;
-function what(v, before) {
-  if (!before)
-    return "Added";
-  const parts = [
-    ...v.title !== before.title ? [`Renamed from “${before.title}”`] : [],
-    ...v.status !== before.status ? [MARKED[v.status]] : []
-  ];
-  return parts.join(", ") || "No change";
-}
-var who = (v) => v.from ? `${v.agent} on ${v.from}` : v.by === "person" ? "You" : `${v.agent}, session ${v.session.slice(0, 8)}`;
-function History({ goal, save }) {
-  let last, waiting;
-  const rows = goal.versions.map((v) => {
-    const row = { v, what: what(v, last), before: last };
-    if (!v.counts)
-      return row;
-    if (v.proposed) {
-      row.what = last ? `Proposed: ${row.what}` : "Proposed";
-      waiting = v;
-      last ??= v;
-      return row;
-    }
-    if (waiting) {
-      if (same(v, waiting))
-        row.what = "Accepted";
-      else if (same(v, last) || waiting.id === goal.id && v.status === "dropped" && v.title === waiting.title)
-        row.what = "Declined";
-    }
-    last = v;
-    waiting = undefined;
-    return row;
-  });
-  const latest = rows.findLast((r) => r.v.counts && !r.v.proposed);
-  return /* @__PURE__ */ u3("section", {
-    class: "goal-section",
-    children: [
-      /* @__PURE__ */ u3("h4", {
-        children: "History"
-      }, undefined, false, undefined, this),
-      /* @__PURE__ */ u3("ol", {
-        class: "goal-history",
-        children: rows.map((r) => /* @__PURE__ */ u3("li", {
-          class: r.v.counts ? "" : "is-ignored",
-          children: [
-            /* @__PURE__ */ u3("time", {
-              children: when(r.v.ts)
-            }, undefined, false, undefined, this),
-            /* @__PURE__ */ u3("div", {
-              children: [
-                /* @__PURE__ */ u3("p", {
-                  children: [
-                    /* @__PURE__ */ u3("span", {
-                      children: r.what
-                    }, undefined, false, undefined, this),
-                    /* @__PURE__ */ u3("span", {
-                      class: "goal-who",
-                      children: who(r.v)
-                    }, undefined, false, undefined, this),
-                    !r.v.counts && /* @__PURE__ */ u3("span", {
-                      class: "goal-who",
-                      children: "not applied"
-                    }, undefined, false, undefined, this),
-                    r === latest && r.before && !same(r.v, r.before) && /* @__PURE__ */ u3("button", {
-                      type: "button",
-                      class: "link-button",
-                      onClick: () => void save({
-                        id: goal.id,
-                        title: r.before.title,
-                        status: r.before.status,
-                        why: `Undid: ${r.what}`
-                      }),
-                      children: "Undo"
-                    }, undefined, false, undefined, this)
-                  ]
-                }, undefined, true, undefined, this),
-                r.v.why && r.v.id !== goal.id && /* @__PURE__ */ u3("small", {
-                  children: r.v.why
-                }, undefined, false, undefined, this)
-              ]
-            }, undefined, true, undefined, this)
-          ]
-        }, r.v.id, true, undefined, this))
-      }, undefined, false, undefined, this)
-    ]
-  }, undefined, true, undefined, this);
-}
-function Proposed({ goal, save }) {
-  const p = goal.proposal;
-  return /* @__PURE__ */ u3("div", {
-    class: "goal-proposal",
-    children: [
-      /* @__PURE__ */ u3("p", {
-        children: [
-          /* @__PURE__ */ u3("b", {
-            children: p.added ? "Proposed" : `Proposed: ${what(p, goal)}`
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("span", {
-            class: "goal-who",
-            children: who(p)
-          }, undefined, false, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      p.why && !(p.added && p.id === goal.id) && /* @__PURE__ */ u3("small", {
-        children: p.why
-      }, undefined, false, undefined, this),
-      /* @__PURE__ */ u3("div", {
-        class: "goal-actions",
-        children: [
-          /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button primary",
-            onClick: () => void save({ id: goal.id, answer: "accept" }),
-            children: "Accept"
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button",
-            onClick: () => void save({ id: goal.id, answer: "decline" }),
-            children: "Decline"
-          }, undefined, false, undefined, this)
-        ]
-      }, undefined, true, undefined, this)
-    ]
-  }, undefined, true, undefined, this);
-}
-function GoalItem({ goal, save }) {
-  const [open, setOpen] = d2(false);
-  const [form, setForm] = d2(null);
-  const done = (ok) => {
-    if (ok)
-      setForm(null);
-  };
-  return /* @__PURE__ */ u3("li", {
-    class: `goal is-${goal.status}`,
-    children: [
-      /* @__PURE__ */ u3("button", {
-        type: "button",
-        class: "goal-row",
-        "aria-expanded": open,
-        onClick: () => setOpen(!open),
-        children: [
-          /* @__PURE__ */ u3("span", {
-            class: `goal-status is-${goal.status}`,
-            children: LABEL2[goal.status]
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("span", {
-            class: "goal-title",
-            children: goal.title
-          }, undefined, false, undefined, this),
-          goal.from && /* @__PURE__ */ u3("span", {
-            class: "goal-from",
-            children: [
-              "from ",
-              goal.from
-            ]
-          }, undefined, true, undefined, this),
-          goal.proposal && /* @__PURE__ */ u3("span", {
-            class: "goal-proposed",
-            children: goal.proposal.added ? "Proposed" : "Change proposed"
-          }, undefined, false, undefined, this),
-          goal.total > 0 && /* @__PURE__ */ u3("span", {
-            class: "goal-progress",
-            children: [
-              goal.done,
-              " of ",
-              goal.total,
-              " done"
-            ]
-          }, undefined, true, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      open && /* @__PURE__ */ u3("div", {
-        class: "goal-detail",
-        children: [
-          goal.why && /* @__PURE__ */ u3("p", {
-            class: "goal-why",
-            children: goal.why
-          }, undefined, false, undefined, this),
-          goal.proposal && /* @__PURE__ */ u3(Proposed, {
-            goal,
-            save
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("div", {
-            class: "goal-actions",
-            children: [
-              /* @__PURE__ */ u3(Segmented, {
-                label: "Status",
-                value: goal.status,
-                options: STATUSES,
-                onChange: (status) => void save({ id: goal.id, status })
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("button", {
-                type: "button",
-                class: "button",
-                onClick: () => setForm("rename"),
-                children: [
-                  /* @__PURE__ */ u3(Icon, {
-                    name: "pencil",
-                    size: 14
-                  }, undefined, false, undefined, this),
-                  "Rename"
-                ]
-              }, undefined, true, undefined, this),
-              /* @__PURE__ */ u3("button", {
-                type: "button",
-                class: "button",
-                onClick: () => setForm("sub"),
-                children: [
-                  /* @__PURE__ */ u3(Icon, {
-                    name: "plus",
-                    size: 14
-                  }, undefined, false, undefined, this),
-                  "Add sub-goal"
-                ]
-              }, undefined, true, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
-          form === "rename" && /* @__PURE__ */ u3(TitleForm, {
-            label: "Title",
-            submit: "Save",
-            initial: goal.title,
-            onSave: (title) => void save({ id: goal.id, title }).then(done),
-            onCancel: () => setForm(null)
-          }, undefined, false, undefined, this),
-          form === "sub" && /* @__PURE__ */ u3(TitleForm, {
-            label: "Sub-goal",
-            submit: "Add",
-            onSave: (title) => void save({ parent: goal.id, title }).then(done),
-            onCancel: () => setForm(null)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3(History, {
-            goal,
-            save
-          }, undefined, false, undefined, this),
-          goal.attempts.length > 0 && /* @__PURE__ */ u3("section", {
-            class: "goal-section",
-            children: [
-              /* @__PURE__ */ u3("h4", {
-                children: "Attempts"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ u3("ul", {
-                class: "goal-attempts",
-                children: goal.attempts.map((a) => /* @__PURE__ */ u3("li", {
-                  children: [
-                    /* @__PURE__ */ u3(OutcomeBadge, {
-                      status: a.status
-                    }, undefined, false, undefined, this),
-                    /* @__PURE__ */ u3("span", {
-                      children: a.intent || "No goal recorded"
-                    }, undefined, false, undefined, this),
-                    /* @__PURE__ */ u3("time", {
-                      children: when(a.ts)
-                    }, undefined, false, undefined, this)
-                  ]
-                }, a.id, true, undefined, this))
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
-          /* @__PURE__ */ u3("span", {
-            class: "goal-id",
-            children: [
-              "id ",
-              goal.id
-            ]
-          }, undefined, true, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      goal.subgoals.length > 0 && /* @__PURE__ */ u3("ul", {
-        class: "goal-list",
-        children: goal.subgoals.map((s) => /* @__PURE__ */ u3(GoalItem, {
-          goal: s,
-          save
-        }, s.id, false, undefined, this))
-      }, undefined, false, undefined, this)
-    ]
-  }, undefined, true, undefined, this);
-}
-function Goals() {
-  const { data, error, save } = useLive("/api/goals");
-  const [adding, setAdding] = d2(false);
-  if (!data)
-    return null;
-  const { goals } = data;
-  const live = goals.filter((g) => g.status !== "dropped");
-  return /* @__PURE__ */ u3("section", {
-    class: "goals",
-    children: [
-      /* @__PURE__ */ u3("header", {
-        class: "goals-head",
-        children: [
-          /* @__PURE__ */ u3("h2", {
-            children: "Goals"
-          }, undefined, false, undefined, this),
-          live.length > 0 && /* @__PURE__ */ u3("span", {
-            class: "goal-progress",
-            children: [
-              live.filter((g) => g.status === "done").length,
-              " of ",
-              live.length,
-              " done"
-            ]
-          }, undefined, true, undefined, this),
-          !adding && /* @__PURE__ */ u3("button", {
-            type: "button",
-            class: "button",
-            onClick: () => setAdding(true),
-            children: [
-              /* @__PURE__ */ u3(Icon, {
-                name: "plus",
-                size: 14
-              }, undefined, false, undefined, this),
-              "Add goal"
-            ]
-          }, undefined, true, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      error && /* @__PURE__ */ u3("p", {
-        class: "settings-status is-error",
-        children: error
-      }, undefined, false, undefined, this),
-      adding && /* @__PURE__ */ u3(TitleForm, {
-        label: "Goal",
-        submit: "Add",
-        onSave: (title) => void save({ title }).then((ok) => ok && setAdding(false)),
-        onCancel: () => setAdding(false)
-      }, undefined, false, undefined, this),
-      !goals.length && !adding && /* @__PURE__ */ u3("p", {
-        class: "goals-empty",
-        children: [
-          /* @__PURE__ */ u3("b", {
-            children: "No goals yet."
-          }, undefined, false, undefined, this),
-          " Your agent sees them when a session starts, and again after compaction."
-        ]
-      }, undefined, true, undefined, this),
-      goals.length > 0 && /* @__PURE__ */ u3("ul", {
-        class: "goal-list",
-        children: goals.map((g) => /* @__PURE__ */ u3(GoalItem, {
-          goal: g,
-          save
-        }, g.id, false, undefined, this))
-      }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
 }
@@ -5122,10 +5725,14 @@ function RuleForm({ start, onSave, onCancel }) {
 }
 function Rules() {
   const [rules, setRules] = d2(null);
+  const [files, setFiles] = d2([]);
   const [editing, setEditing] = d2(null);
   const [error, setError] = d2("");
   h2(() => {
-    getJson("/api/rules").then((v) => v.rules ? setRules(v.rules) : setError(v.error ?? "Couldn't load the writing rules")).catch(() => setError("Couldn't load the writing rules"));
+    getJson("/api/rules").then((v) => {
+      setFiles(v.files ?? []);
+      v.rules ? setRules(v.rules) : setError(v.error ?? "Couldn't load the writing rules");
+    }).catch(() => setError("Couldn't load the writing rules"));
   }, []);
   const post = async (body) => {
     const r = await send("/api/rules", body);
@@ -5174,9 +5781,12 @@ function Rules() {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
+      /* @__PURE__ */ u3(AbsorbNote, {
+        what: "rules"
+      }, undefined, false, undefined, this),
       rules?.length === 0 && editing !== "new" && /* @__PURE__ */ u3("p", {
         class: "rules-empty",
-        children: "Point a rule set at where a kind of text's rules are written, such as a heading in AGENTS.md, and your agent gets them before it writes that text."
+        children: "No rule sets in ANVC yet. A rule set points at rules you already wrote, such as a heading in AGENTS.md. Your agent then gets them just before it writes what they cover, such as a commit message."
       }, undefined, false, undefined, this),
       editing === "new" && /* @__PURE__ */ u3(RuleForm, {
         onSave: save(null),
@@ -5245,6 +5855,43 @@ function Rules() {
           ]
         }, r.id, true, undefined, this))
       }, undefined, false, undefined, this),
+      files.length > 0 && /* @__PURE__ */ u3(S, {
+        children: [
+          /* @__PURE__ */ u3("h3", {
+            class: "rules-files-head",
+            children: "Your own rule files"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("p", {
+            class: "rules-files-sub",
+            children: "Your agent already reads these. ANVC shows them here as they are."
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ u3("div", {
+            class: "rule-list",
+            children: files.map((f) => /* @__PURE__ */ u3("details", {
+              class: "rule",
+              children: [
+                /* @__PURE__ */ u3("summary", {
+                  children: [
+                    /* @__PURE__ */ u3("b", {
+                      children: /* @__PURE__ */ u3("code", {
+                        children: f.path
+                      }, undefined, false, undefined, this)
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ u3("span", {
+                      class: "rule-where",
+                      children: f.scope === "everywhere" ? "Your global file" : "This repository's"
+                    }, undefined, false, undefined, this)
+                  ]
+                }, undefined, true, undefined, this),
+                /* @__PURE__ */ u3("div", {
+                  class: "rule-text md",
+                  children: markdown(f.text)
+                }, undefined, false, undefined, this)
+              ]
+            }, f.path, true, undefined, this))
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
       error && /* @__PURE__ */ u3("p", {
         class: "settings-status is-error",
         role: "alert",
@@ -5819,13 +6466,13 @@ function Tools() {
 }
 
 // server/project.tsx
-var TABS = [["status", "Status"], ["goals", "Goals"], ["rules", "Writing rules"], ["tools", "Tools"]];
+var TABS = [["map", "Map"], ["status", "Status"], ["goals", "Goals"], ["rules", "Writing rules"], ["tools", "Tools"]];
 var saved = () => {
   try {
     const t = localStorage.getItem("anvc.project.tab");
-    return TABS.some(([id]) => id === t) ? t : "status";
+    return TABS.some(([id]) => id === t) ? t : "map";
   } catch {
-    return "status";
+    return "map";
   }
 };
 function ProjectPage() {
@@ -5867,6 +6514,7 @@ function ProjectPage() {
         class: "project-panel",
         role: "tabpanel",
         children: [
+          tab === "map" && /* @__PURE__ */ u3(ProjectMap, {}, undefined, false, undefined, this),
           tab === "status" && /* @__PURE__ */ u3(Status, {}, undefined, false, undefined, this),
           tab === "goals" && /* @__PURE__ */ u3(Goals, {}, undefined, false, undefined, this),
           tab === "rules" && /* @__PURE__ */ u3(Rules, {}, undefined, false, undefined, this),
@@ -5879,24 +6527,6 @@ function ProjectPage() {
 
 // server/work-model.ts
 var inOutcome = (turn, outcome) => outcome === "all" || (outcome === "unexplained" ? !turn.authored : turn.status === outcome);
-function turnArea(turn) {
-  const paths = turn.filesWritten;
-  if (!paths.length)
-    return null;
-  const areas = new Set(paths.map((path) => {
-    const parts = path.split("/").filter(Boolean);
-    return parts.length > 1 ? parts[0] : (parts[0] ?? "").replace(/\.[^.]+$/, "");
-  }));
-  if (areas.size === 1)
-    return [...areas][0].slice(0, 18);
-  const sorted = [...areas].sort();
-  if (sorted.length === 2) {
-    const both = `${sorted[0]} + ${sorted[1]}`;
-    if (both.length <= 22)
-      return both;
-  }
-  return `${sorted.length} folders`;
-}
 function turnTitle(turn) {
   if (turn.authored && turn.intent.trim())
     return turn.intent;
@@ -6104,197 +6734,6 @@ function exampleWork() {
   };
 }
 
-// server/sources.tsx
-var KIND = { page: "Page", search: "Search", document: "Document" };
-var nameOf = (s) => s.kind === "search" ? `“${s.query ?? ""}”` : s.url ?? s.path ?? "";
-var label = (s) => s.title ?? (s.path ? s.path.split(/[\\/]/).at(-1) : nameOf(s));
-function Kept({ id, pdf }) {
-  const [text, setText] = d2(undefined);
-  h2(() => {
-    getJson(`/api/sources?id=${encodeURIComponent(id)}`).then((v) => setText(v.source?.text ?? null)).catch(() => setText(null));
-  }, [id]);
-  if (text === undefined)
-    return /* @__PURE__ */ u3("p", {
-      class: "source-note",
-      children: "Reading…"
-    }, undefined, false, undefined, this);
-  if (text === null)
-    return /* @__PURE__ */ u3("p", {
-      class: "source-note",
-      children: [
-        "No text was kept.",
-        pdf && " Keeping a PDF's text needs pdftotext."
-      ]
-    }, undefined, true, undefined, this);
-  return /* @__PURE__ */ u3("pre", {
-    class: "source-text",
-    children: text
-  }, undefined, false, undefined, this);
-}
-function SourceRow({ s }) {
-  const [open, setOpen] = d2(false);
-  return /* @__PURE__ */ u3("details", {
-    class: "source-item",
-    onToggle: (e) => setOpen(e.currentTarget.open),
-    children: [
-      /* @__PURE__ */ u3("summary", {
-        children: [
-          /* @__PURE__ */ u3("span", {
-            class: `source-kind is-${s.kind}`,
-            children: KIND[s.kind]
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("span", {
-            class: "source-name",
-            children: label(s)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("span", {
-            class: "source-when",
-            children: when(s.ts)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("span", {
-            class: "source-meta",
-            children: [
-              "Session ",
-              /* @__PURE__ */ u3("code", {
-                children: s.session_id?.slice(0, 8) ?? "unknown"
-              }, undefined, false, undefined, this),
-              " · ",
-              s.agent_name,
-              s.chars === null && " · no text kept"
-            ]
-          }, undefined, true, undefined, this),
-          s.links.length > 0 && /* @__PURE__ */ u3("ul", {
-            class: "source-links",
-            children: s.links.map((l) => /* @__PURE__ */ u3("li", {
-              children: [
-                l.kind === "result" ? /* @__PURE__ */ u3("span", {
-                  class: "source-result",
-                  children: "Result"
-                }, undefined, false, undefined, this) : /* @__PURE__ */ u3(OutcomeBadge, {
-                  status: l.status
-                }, undefined, false, undefined, this),
-                /* @__PURE__ */ u3("span", {
-                  children: l.title || "No goal"
-                }, undefined, false, undefined, this),
-                /* @__PURE__ */ u3("small", {
-                  children: l.how === "session" ? "same session" : "names it"
-                }, undefined, false, undefined, this)
-              ]
-            }, l.id, true, undefined, this))
-          }, undefined, false, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      /* @__PURE__ */ u3("div", {
-        class: "source-body",
-        children: [
-          label(s) !== nameOf(s) && /* @__PURE__ */ u3("p", {
-            class: "source-where",
-            children: /* @__PURE__ */ u3("code", {
-              children: nameOf(s)
-            }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this),
-          /^https?:\/\//i.test(s.url ?? "") && /* @__PURE__ */ u3("p", {
-            class: "source-where",
-            children: /* @__PURE__ */ u3("a", {
-              href: s.url,
-              target: "_blank",
-              rel: "noopener noreferrer",
-              children: [
-                "Open the page ",
-                /* @__PURE__ */ u3(Icon, {
-                  name: "external-link",
-                  size: 13
-                }, undefined, false, undefined, this)
-              ]
-            }, undefined, true, undefined, this)
-          }, undefined, false, undefined, this),
-          s.asked && /* @__PURE__ */ u3("p", {
-            class: "source-asked",
-            children: [
-              /* @__PURE__ */ u3("b", {
-                children: "Asked"
-              }, undefined, false, undefined, this),
-              " ",
-              s.asked
-            ]
-          }, undefined, true, undefined, this),
-          open && /* @__PURE__ */ u3(Kept, {
-            id: s.id,
-            pdf: Boolean(s.path?.toLowerCase().endsWith(".pdf"))
-          }, undefined, false, undefined, this)
-        ]
-      }, undefined, true, undefined, this)
-    ]
-  }, undefined, true, undefined, this);
-}
-function SourcesPage() {
-  const [view, setView] = d2(null);
-  const [query, setQuery] = d2("");
-  h2(() => {
-    const t = setTimeout(() => {
-      getJson(`/api/sources?q=${encodeURIComponent(query.trim())}`).then(setView).catch(() => {});
-    }, query ? 250 : 0);
-    return () => clearTimeout(t);
-  }, [query]);
-  if (!view)
-    return /* @__PURE__ */ u3("p", {
-      class: "map-empty",
-      children: "Reading sources…"
-    }, undefined, false, undefined, this);
-  return /* @__PURE__ */ u3("div", {
-    class: "sources",
-    children: [
-      view.total > 0 && /* @__PURE__ */ u3("div", {
-        class: "filterbar sources-bar",
-        children: /* @__PURE__ */ u3("label", {
-          class: "search",
-          children: [
-            /* @__PURE__ */ u3(Icon, {
-              name: "search"
-            }, undefined, false, undefined, this),
-            /* @__PURE__ */ u3("input", {
-              type: "search",
-              "aria-label": "Search sources",
-              placeholder: "Search sources…",
-              value: query,
-              onInput: (e) => setQuery(e.currentTarget.value)
-            }, undefined, false, undefined, this)
-          ]
-        }, undefined, true, undefined, this)
-      }, undefined, false, undefined, this),
-      !view.on && /* @__PURE__ */ u3("p", {
-        class: "source-note",
-        children: "Sources are off here. Turn them on in Settings, under Raw log."
-      }, undefined, false, undefined, this),
-      view.on && !view.total && /* @__PURE__ */ u3("div", {
-        class: "results-empty",
-        children: [
-          /* @__PURE__ */ u3("h2", {
-            children: "No sources yet"
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ u3("p", {
-            children: "The pages your agent fetches, its web searches, and the papers and notes it reads outside the project are kept here, with the text it got back."
-          }, undefined, false, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      view.total > 0 && !view.sources.length && /* @__PURE__ */ u3("p", {
-        class: "source-note",
-        children: [
-          'No source holds "',
-          query,
-          '".'
-        ]
-      }, undefined, true, undefined, this),
-      view.sources.length > 0 && /* @__PURE__ */ u3("div", {
-        class: "source-list",
-        children: view.sources.map((s) => /* @__PURE__ */ u3(SourceRow, {
-          s
-        }, s.id, false, undefined, this))
-      }, undefined, false, undefined, this)
-    ]
-  }, undefined, true, undefined, this);
-}
-
 // server/faq.tsx
 var QUESTIONS = [
   ["What does ANVC save?", /* @__PURE__ */ u3(S, {
@@ -6430,17 +6869,15 @@ var FILTERS2 = [
 var DAY = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" });
 var PAGES = [
   ["project", "target", "Project"],
-  ["map", "git-commit-horizontal", "Project map"],
   ["results", "database", "Results"],
-  ["sources", "file-text", "Sources"],
+  ["stats", "chart-column", "Stats"],
   ["folders", "folder", "Folders"]
 ];
-var TITLE = {
+var TITLE2 = {
   project: "Project",
   work: "Work log",
-  map: "Project map",
-  results: "Results",
-  sources: "Sources",
+  results: "Results and sources",
+  stats: "Stats",
   settings: "Settings",
   folders: "Folders",
   faq: "Questions"
@@ -6696,7 +7133,7 @@ function Version() {
         class: "link-button version-update",
         onClick: updateNow,
         disabled: run.busy,
-        children: run.busy ? "Updating…" : "Update"
+        children: run.busy ? "Updating…" : status === "Up to date" ? "Check again" : "Update"
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -6793,56 +7230,70 @@ function TurnRow({
           /* @__PURE__ */ u3("span", {
             class: "row-meta",
             children: [
-              turnArea(turn) && /* @__PURE__ */ u3("span", {
-                class: "row-area",
-                children: turnArea(turn)
-              }, undefined, false, undefined, this),
               turn.filesWritten.length > 0 && /* @__PURE__ */ u3("span", {
-                children: plural(turn.filesWritten.length, "file")
-              }, undefined, false, undefined, this),
+                class: "meta-item",
+                title: `Files it changed:
+${turn.filesWritten.slice(0, 20).join(`
+`)}`,
+                children: [
+                  /* @__PURE__ */ u3(Icon, {
+                    name: "file-text",
+                    size: 13
+                  }, undefined, false, undefined, this),
+                  changedLine(turn.filesWritten)
+                ]
+              }, undefined, true, undefined, this),
               turn.seconds > 5 && /* @__PURE__ */ u3("span", {
-                children: duration(turn.seconds)
-              }, undefined, false, undefined, this),
+                class: "meta-item",
+                title: "How long it took",
+                children: [
+                  /* @__PURE__ */ u3(Icon, {
+                    name: "clock",
+                    size: 13
+                  }, undefined, false, undefined, this),
+                  "took ",
+                  duration(turn.seconds)
+                ]
+              }, undefined, true, undefined, this),
               turn.tier === "private" && /* @__PURE__ */ u3("span", {
-                class: "row-private",
-                title: "Only on this computer",
+                class: "meta-item row-private",
+                title: "Kept only on this computer. Rows without this are shared: they go out with git push once sharing is on.",
                 children: [
                   /* @__PURE__ */ u3(Icon, {
                     name: "hard-drive",
                     size: 13
                   }, undefined, false, undefined, this),
-                  "private"
+                  "Private"
                 ]
               }, undefined, true, undefined, this),
               turn.retired && /* @__PURE__ */ u3("span", {
-                class: "row-retired",
+                class: "meta-pill",
                 title: "No longer shown to agents",
-                children: "retired"
+                children: "Retired"
               }, undefined, false, undefined, this),
               turn.replacedBy && /* @__PURE__ */ u3("span", {
-                class: "row-retired",
+                class: "meta-pill",
                 title: "A later version replaced this",
-                children: "replaced"
+                children: "Replaced"
               }, undefined, false, undefined, this),
               turn.openDeadEnd && /* @__PURE__ */ u3("span", {
-                class: "row-open",
-                title: "Nothing has retried or replaced this",
-                children: "not retried"
+                class: "meta-pill is-open",
+                title: "Nobody has tried this again since it was abandoned",
+                children: "Not tried again"
               }, undefined, false, undefined, this)
-            ].filter(Boolean).map((part, i) => /* @__PURE__ */ u3(S, {
-              children: [
-                i > 0 && !(i === 1 && turnArea(turn)) && /* @__PURE__ */ u3("span", {
-                  class: "meta-dot",
-                  children: "·"
-                }, undefined, false, undefined, this),
-                part
-              ]
-            }, undefined, true, undefined, this))
-          }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this)
     ]
   }, undefined, true, undefined, this);
+}
+function changedLine(paths) {
+  const files = plural(paths.length, "file");
+  const dirs = [...new Set(paths.map((p) => p.includes("/") ? `${p.split("/")[0]}/` : ""))];
+  if (dirs.includes(""))
+    return files;
+  return `${files} in ${dirs.length > 2 ? `${dirs.slice(0, 2).join(", ")} and ${dirs.length - 2} more` : dirs.join(" and ")}`;
 }
 function AttemptDetail({
   turn,
@@ -7453,6 +7904,7 @@ function App() {
               }, undefined, false, undefined, this),
               /* @__PURE__ */ u3("div", {
                 class: "brand",
+                "data-page": page === "work" && session ? "Session" : TITLE2[page],
                 children: [
                   /* @__PURE__ */ u3("span", {
                     class: "brand-symbol",
@@ -7647,7 +8099,7 @@ function App() {
                   /* @__PURE__ */ u3("div", {
                     children: [
                       /* @__PURE__ */ u3("h1", {
-                        children: page === "work" && session ? "Session" : TITLE[page]
+                        children: page === "work" && session ? "Session" : TITLE2[page]
                       }, undefined, false, undefined, this),
                       page === "work" && sessionTitle && /* @__PURE__ */ u3("p", {
                         children: sessionTitle
@@ -7673,10 +8125,9 @@ function App() {
               page === "folders" && /* @__PURE__ */ u3(FoldersPage, {
                 folders: folderState
               }, undefined, false, undefined, this),
-              page === "results" && /* @__PURE__ */ u3(ResultsPage, {}, undefined, false, undefined, this),
-              page === "sources" && /* @__PURE__ */ u3(SourcesPage, {}, undefined, false, undefined, this),
+              page === "results" && /* @__PURE__ */ u3(ResultsHub, {}, undefined, false, undefined, this),
+              page === "stats" && /* @__PURE__ */ u3(StatsPage, {}, undefined, false, undefined, this),
               page === "project" && /* @__PURE__ */ u3(ProjectPage, {}, undefined, false, undefined, this),
-              page === "map" && /* @__PURE__ */ u3(ProjectMap, {}, undefined, false, undefined, this),
               page === "settings" && /* @__PURE__ */ u3(Settings, {}, undefined, false, undefined, this),
               page === "faq" && /* @__PURE__ */ u3(FaqPage, {}, undefined, false, undefined, this),
               page === "work" && (loaded || example) && data.turns.length > 0 && /* @__PURE__ */ u3(S, {

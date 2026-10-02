@@ -9,7 +9,8 @@
  * happen here or with anvc result.
  */
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { getJson, Icon, plural, Scope, send, when } from "./widgets";
+import { getJson, Hint, Icon, plural, Scope, Segmented, send, when } from "./widgets";
+import { SourcesPage } from "./sources";
 
 type Status = "draft" | "current" | "locked" | "superseded" | "invalid";
 type FileState = "same" | "changed" | "missing" | "unknown";
@@ -45,7 +46,7 @@ function FileLine({ path, state, now }: { path: string; state: FileState; now?: 
   return (
     <span class={`result-file is-${state}`}>
       <code>{path}</code>
-      <span>{words}</span>
+      <span class="state-badge">{words}</span>
     </span>
   );
 }
@@ -131,93 +132,129 @@ function Timeline({ results, byId, onJump }: { results: Result[]; byId: Map<stri
   );
 }
 
-function Card({ r, byId, onDecide, onJump }: { r: Result; byId: Map<string, Result>; onDecide: (body: object) => void; onJump: (id: string) => void }) {
+/**
+ * One result: a row with its name, value and status, and a flag when it
+ * needs the person. Everything else (why, where it came from, the command,
+ * the buttons) opens below it, in labelled sections, so a page of results
+ * reads as a list rather than a wall.
+ */
+function Card({ r, byId, onDecide, onJump, focus }: { r: Result; byId: Map<string, Result>; onDecide: (body: object) => void; onJump: (id: string) => void; focus: string | null }) {
+  const [open, setOpen] = useState(false);
   const [asking, setAsking] = useState(false);
   const [why, setWhy] = useState("");
+  useEffect(() => { if (focus === r.id) setOpen(true); }, [focus]);
+  const verdict = r.status === "locked"
+    ? (r.check.stale ? "Locked, but something it depends on changed since. Worth a look before anyone re-runs it." : null)
+    : r.status === "invalid" ? "Don't use this value."
+    : r.check.stale ? (r.status === "draft" ? "Something it depends on changed since it was recorded. It's a draft, so it isn't flagged." : "Something it depends on changed since it was recorded.") : null;
+  const facts = r.source || r.check.depends.length || r.check.derived.length || Object.keys(r.settings).length || r.used_in.length;
   return (
-    <article id={`result-${r.id}`} class={`result-card is-${r.status}${needsLook(r) ? " needs-look" : ""}`}>
-      <header>
-        <div>
-          <h3>{r.name}</h3>
-          <span class="result-when">{day(r.ts)}{r.after_the_fact ? " · recorded after the fact" : ""}</span>
+    <article id={`result-${r.id}`} class={`result-card is-${r.status}${needsLook(r) ? " needs-look" : ""}${open ? " is-open" : ""}`}>
+      <button type="button" class="result-row" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span class="result-name">
+          <b>{r.name}</b>
+          <span class="result-sub">
+            <span class="result-value">{r.value}</span>
+            <span class="result-when">· {day(r.ts)}{r.after_the_fact ? ", recorded after the fact" : ""}</span>
+          </span>
+        </span>
+        {/* One pill: what the person should do about it, else its status. */}
+        <span class="result-pill">
+          {r.check.stale && !needsLook(r) && r.status !== "invalid" && <span class="result-changed" title="Something it depends on changed since it was recorded"><Icon name="triangle-alert" size={14} /></span>}
+          {r.proposed
+            ? <span class="result-flag is-ask" title="Your agent proposed a change. Open it to accept or keep it as it is.">Waiting for you</span>
+            : needsLook(r)
+              ? <span class="result-flag is-warn" title="Something it depends on changed since it was recorded.">Needs a look</span>
+              : <span class={`result-status is-${r.status}`}>{r.status === "locked" && <Icon name="lock" size={13} />}{LABEL[r.status]}</span>}
+        </span>
+        <Icon name={open ? "chevron-up" : "chevron-down"} size={16} />
+      </button>
+      {open && (
+        <div class="result-body">
+          {verdict && <p class={`result-verdict${needsLook(r) || r.status === "invalid" ? "" : " is-quiet"}`}><Icon name="triangle-alert" size={14} />{verdict}</p>}
+          {/* The pill shows what to do, so the status is said here only when the pill doesn't say it. */}
+          {(r.proposed || needsLook(r)) && <p class="result-state">Status: <b>{LABEL[r.status]}</b></p>}
+          {r.why && (
+            <section class="result-section">
+              <h4>Why</h4>
+              <p class="result-why">{r.why}</p>
+            </section>
+          )}
+          {facts ? (
+            <section class="result-section">
+              <h4>Where it came from</h4>
+              <dl class="result-facts">
+                {r.source && (
+                  <>
+                    <dt>From</dt>
+                    <dd><FileLine path={`${r.source.path}${r.source.key ? ` → ${r.source.key}` : ""}`} state={r.check.source?.state ?? "unknown"} now={r.check.source?.now} /></dd>
+                  </>
+                )}
+                {r.check.depends.length > 0 && (
+                  <>
+                    <dt>Depends on</dt>
+                    <dd class="result-depends">{r.check.depends.map((d) => <FileLine key={d.path} path={d.path} state={d.state} />)}</dd>
+                  </>
+                )}
+                {r.check.derived.length > 0 && (
+                  <>
+                    <dt>Computed from</dt>
+                    <dd class="result-depends">{r.check.derived.map((d) => (
+                      <button key={d.id} type="button" class="link-button" onClick={() => onJump(d.id)}>{d.name} ({d.status})</button>
+                    ))}</dd>
+                  </>
+                )}
+                {Object.keys(r.settings).length > 0 && (
+                  <>
+                    <dt>Settings</dt>
+                    <dd class="result-settings">{Object.entries(r.settings).map(([k, v]) => <code key={k}>{k}={v}</code>)}</dd>
+                  </>
+                )}
+                {r.used_in.length > 0 && (
+                  <>
+                    <dt>Used in</dt>
+                    <dd>{r.used_in.join(" · ")}</dd>
+                  </>
+                )}
+              </dl>
+            </section>
+          ) : null}
+          {r.command && (
+            <section class="result-section">
+              <h4>Made by</h4>
+              <pre class="result-command">{r.command}</pre>
+            </section>
+          )}
+          <Lineage r={r} byId={byId} onJump={onJump} />
+          {r.proposed && (
+            <div class="result-proposal">
+              <p>
+                {r.proposed.status === "locked" ? "Your agent proposed locking this" : `Your agent proposed marking this ${LABEL[r.proposed.status].toLowerCase()}`}
+                {r.proposed.why ? `: ${r.proposed.why}` : "."}
+              </p>
+              <button type="button" class="button primary" onClick={() => onDecide({ id: r.id, status: r.proposed!.status, why: r.proposed!.why })}>
+                {r.proposed.status === "locked" ? "Lock" : `Mark ${LABEL[r.proposed.status].toLowerCase()}`}
+              </button>
+              <button type="button" class="button" onClick={() => onDecide({ id: r.id, status: r.status, why: "Kept as it was." })}>Keep as it is</button>
+            </div>
+          )}
+          <footer class="result-actions">
+            {r.status === "locked"
+              ? <button type="button" class="button" onClick={() => onDecide({ id: r.id, status: "current", why: "Unlocked." })}>Unlock</button>
+              : r.status !== "invalid" && r.proposed?.status !== "locked" && <button type="button" class="button" title="Mark it final, so your agent doesn't re-run or replace it" onClick={() => onDecide({ id: r.id, status: "locked", why: "Locked." })}><Icon name="lock" size={14} /> Lock</button>}
+            {r.status !== "invalid" && !asking && <button type="button" class="button" onClick={() => setAsking(true)}>Mark invalid</button>}
+            {r.status === "invalid" && <button type="button" class="button" onClick={() => onDecide({ id: r.id, status: "current", why: "Valid again." })}>Mark valid</button>}
+            {asking && (
+              <form class="result-invalid" onSubmit={(e) => { e.preventDefault(); onDecide({ id: r.id, status: "invalid", why: why.trim() || "Marked invalid." }); setAsking(false); }}>
+                <input id={`why-${r.id}`} value={why} onInput={(e) => setWhy(e.currentTarget.value)} placeholder="Why is it wrong?" aria-label="Why is it wrong?" />
+                <button type="submit" class="button primary">Mark invalid</button>
+                <button type="button" class="button" onClick={() => setAsking(false)}>Cancel</button>
+              </form>
+            )}
+            <span class="result-id">id {r.id}</span>
+          </footer>
         </div>
-        <b class="result-value">{r.value}</b>
-        <span class={`result-status is-${r.status}`}>{r.status === "locked" && <Icon name="lock" size={13} />}{LABEL[r.status]}</span>
-      </header>
-      {r.status === "locked" && (
-        <p class="result-verdict">{r.check.stale ? "Locked, but something it depends on changed since. Worth a look before anyone re-runs it." : "Locked, and nothing it depends on changed."}</p>
       )}
-      {r.status === "invalid" && <p class="result-verdict">Don't use this value.</p>}
-      {r.status !== "locked" && r.status !== "invalid" && r.check.stale && <p class="result-verdict">Something it depends on changed since it was recorded.</p>}
-      {r.why && <p class="result-why">{r.why}</p>}
-      <dl class="result-facts">
-        {r.source && (
-          <>
-            <dt>From</dt>
-            <dd><FileLine path={`${r.source.path}${r.source.key ? ` → ${r.source.key}` : ""}`} state={r.check.source?.state ?? "unknown"} now={r.check.source?.now} /></dd>
-          </>
-        )}
-        {r.check.depends.length > 0 && (
-          <>
-            <dt>Depends on</dt>
-            <dd class="result-depends">{r.check.depends.map((d) => <FileLine key={d.path} path={d.path} state={d.state} />)}</dd>
-          </>
-        )}
-        {r.check.derived.length > 0 && (
-          <>
-            <dt>Computed from</dt>
-            <dd class="result-depends">{r.check.derived.map((d) => (
-              <button key={d.id} type="button" class="link-button" onClick={() => onJump(d.id)}>{d.name} ({d.status})</button>
-            ))}</dd>
-          </>
-        )}
-        {r.command && (
-          <>
-            <dt>Made by</dt>
-            <dd><code class="result-command">{r.command}</code></dd>
-          </>
-        )}
-        {Object.keys(r.settings).length > 0 && (
-          <>
-            <dt>Settings</dt>
-            <dd class="result-settings">{Object.entries(r.settings).map(([k, v]) => <code key={k}>{k}={v}</code>)}</dd>
-          </>
-        )}
-        {r.used_in.length > 0 && (
-          <>
-            <dt>Used in</dt>
-            <dd>{r.used_in.join(" · ")}</dd>
-          </>
-        )}
-      </dl>
-      <Lineage r={r} byId={byId} onJump={onJump} />
-      {r.proposed && (
-        <div class="result-proposal">
-          <p>
-            {r.proposed.status === "locked" ? "Your agent proposed locking this" : `Your agent proposed marking this ${LABEL[r.proposed.status].toLowerCase()}`}
-            {r.proposed.why ? `: ${r.proposed.why}` : "."}
-          </p>
-          <button type="button" class="button primary" onClick={() => onDecide({ id: r.id, status: r.proposed!.status, why: r.proposed!.why })}>
-            {r.proposed.status === "locked" ? "Lock" : `Mark ${LABEL[r.proposed.status].toLowerCase()}`}
-          </button>
-          <button type="button" class="button" onClick={() => onDecide({ id: r.id, status: r.status, why: "Kept as it was." })}>Keep as it is</button>
-        </div>
-      )}
-      <footer class="result-actions">
-        {r.status === "locked"
-          ? <button type="button" class="button" onClick={() => onDecide({ id: r.id, status: "current", why: "Unlocked." })}>Unlock</button>
-          : r.status !== "invalid" && r.proposed?.status !== "locked" && <button type="button" class="button" onClick={() => onDecide({ id: r.id, status: "locked", why: "Locked." })}><Icon name="lock" size={14} /> Lock</button>}
-        {r.status !== "invalid" && !asking && <button type="button" class="button" onClick={() => setAsking(true)}>Mark invalid</button>}
-        {r.status === "invalid" && <button type="button" class="button" onClick={() => onDecide({ id: r.id, status: "current", why: "Valid again." })}>Mark valid</button>}
-        {asking && (
-          <form class="result-invalid" onSubmit={(e) => { e.preventDefault(); onDecide({ id: r.id, status: "invalid", why: why.trim() || "Marked invalid." }); setAsking(false); }}>
-            <input id={`why-${r.id}`} value={why} onInput={(e) => setWhy(e.currentTarget.value)} placeholder="Why is it wrong?" aria-label="Why is it wrong?" />
-            <button type="submit" class="button primary">Mark invalid</button>
-            <button type="button" class="button" onClick={() => setAsking(false)}>Cancel</button>
-          </form>
-        )}
-        <span class="result-id">id {r.id}</span>
-      </footer>
     </article>
   );
 }
@@ -270,6 +307,7 @@ function DocumentCheck() {
         <datalist id="doc-check-documents">{documents.map((d) => <option key={d} value={d} />)}</datalist>
         <button type="submit" class="button" disabled={!path.trim() || busy}>{busy ? "Checking…" : "Check"}</button>
         {checked && <button type="button" class="link-button" onClick={() => setChecked(null)}>Close</button>}
+        {!checked && <span class="doc-check-hint">Finds where each number in it came from.</span>}
       </form>
       {error && <p class="settings-sub">{error}</p>}
       {checked && (
@@ -317,6 +355,36 @@ function Printed({ title, rows }: { title: string; rows: PrintedRow[] }) {
 /** A command that printed the number, and the line it printed. */
 const printed = (o: { ts: string; command: string; line: string }): PrintedRow => ({ key: o.ts + o.command, ts: o.ts, what: o.command, note: o.line });
 
+/**
+ * Results and the sources behind them, one page with two tabs: the numbers
+ * a project relies on, and the pages, searches and papers its agents read.
+ * Sources had a sidebar entry of its own, and people looked for it here.
+ */
+const HUB: Array<["results" | "sources", string]> = [["results", "Results"], ["sources", "Sources"]];
+const savedTab = (): "results" | "sources" => {
+  try { return localStorage.getItem("anvc.results.tab") === "sources" ? "sources" : "results"; } catch { return "results"; }
+};
+
+export function ResultsHub() {
+  const [tab, setTab] = useState<"results" | "sources">(savedTab);
+  const pick = (t: "results" | "sources") => { setTab(t); try { localStorage.setItem("anvc.results.tab", t); } catch { /* fine */ } };
+  return (
+    <div class="project-page">
+      <div class="filterbar">
+        <div class="filter-tabs" role="tablist" aria-label="Results and sources">
+          {HUB.map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} class={tab === id ? "current" : ""} onClick={() => pick(id)}>{label}</button>
+          ))}
+        </div>
+        <span class="project-info"><Hint id={`hub-${tab}`} /></span>
+      </div>
+      <div class="project-panel" role="tabpanel">
+        {tab === "results" ? <ResultsPage /> : <SourcesPage />}
+      </div>
+    </div>
+  );
+}
+
 export function ResultsPage() {
   const [view, setView] = useState<View | null>(null);
   const [filter, setFilter] = useState("all");
@@ -340,10 +408,12 @@ export function ResultsPage() {
   }, [query]);
 
   const byId = useMemo(() => new Map((view?.results ?? []).map((r) => [r.id, r])), [view]);
+  const [focus, setFocus] = useState<string | null>(null);
   if (!view) return <p class="map-empty">Reading results…</p>;
 
   const onDecide = async (body: object) => { const next = await decide(body); if (next) setView(next); };
   const onJump = (id: string) => {
+    setFocus(id);
     setFilter("all"); setQuery(""); setMode("parts");
     requestAnimationFrame(() => document.getElementById(`result-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
   };
@@ -367,22 +437,15 @@ export function ResultsPage() {
   return (
     <div class="results">
       <div class="filterbar results-bar">
-        <div class="filter-tabs" role="group" aria-label="Filter by status">
-          {FILTERS.filter(([key]) => key === "all" || count(key) > 0).map(([key, label]) => (
-            <button key={key} type="button" aria-pressed={filter === key} class={`${filter === key ? "current" : ""}${key === "look" ? " tab-missing" : ""}`} onClick={() => setFilter(key)}>
-              {label}<span>{count(key)}</span>
-            </button>
-          ))}
-        </div>
+        <Segmented label="Filter by status" value={filter}
+          options={FILTERS.filter(([key]) => key === "all" || count(key) > 0).map(([key, label]) => [key, `${label} ${count(key)}`] as [string, string])}
+          onChange={setFilter} />
         {view.results.length > 0 && (
-          <div class="filter-tabs results-mode" role="group" aria-label="Show">
-            <button type="button" aria-pressed={mode === "parts"} class={mode === "parts" ? "current" : ""} onClick={() => setMode("parts")}>By part</button>
-            <button type="button" aria-pressed={mode === "timeline"} class={mode === "timeline" ? "current" : ""} onClick={() => setMode("timeline")}>Timeline</button>
-          </div>
+          <Segmented label="Show" value={mode} options={[["parts", "By part"], ["timeline", "Timeline"]]} onChange={setMode} />
         )}
         <label class="search">
           <Icon name="search" />
-          <input id="results-search" type="search" aria-label="Find a number or a result" placeholder="Find a number or a result…" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
+          <input id="results-search" type="search" aria-label="Find a number or a result" placeholder="Search results…" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
         </label>
       </div>
       <DocumentCheck />
@@ -409,8 +472,10 @@ export function ResultsPage() {
       {mode === "timeline" && !found && <Timeline results={listed} byId={byId} onJump={onJump} />}
       {(mode === "parts" || found) && [...parts.entries()].sort(([a], [b]) => (a ? b ? a.localeCompare(b) : -1 : 1)).map(([part, list]) => (
         <section key={part} class="results-part">
-          {parts.size > 1 || part ? <h2>{part || "Other"}</h2> : null}
-          {list.map((r) => <Card key={r.id} r={r} byId={byId} onDecide={(b) => void onDecide(b)} onJump={onJump} />)}
+          {parts.size > 1 || part ? (
+            <h2 class="part-head">Part: {part || "Other"}<span>· {plural(list.length, "result")}</span><Hint id="result-part" /></h2>
+          ) : null}
+          {list.map((r) => <Card key={r.id} r={r} byId={byId} onDecide={(b) => void onDecide(b)} onJump={onJump} focus={focus} />)}
         </section>
       ))}
     </div>

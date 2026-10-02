@@ -34,9 +34,9 @@ test("anvc options lists every setting with its choices, the recommended one and
   const { read } = fixture();
   const o = read();
   expect(o.about).toContain("ask the person before changing it");
-  expect(o.settings.map((s) => s.key)).toEqual(["agents", "where", "folder", "assist", "results", "sharing", "local", "push", "prepush", "instructions", "approvegoals"]);
+  expect(o.settings.map((s) => s.key)).toEqual(["agents", "where", "folder", "assist", "results", "absorb", "sharing", "local", "push", "prepush", "instructions", "approvegoals"]);
   // Whatever can send records off this computer or change a committed file is marked.
-  expect(o.settings.filter((s) => s.asks).map((s) => s.key)).toEqual(["sharing", "local", "push", "prepush", "instructions"]);
+  expect(o.settings.filter((s) => s.asks).map((s) => s.key)).toEqual(["absorb", "sharing", "local", "push", "prepush", "instructions"]);
   for (const s of everySetting(o.settings)) {
     expect(s.name && s.what, s.key).toBeTruthy();
     expect(s.choices.length, s.key).toBeGreaterThanOrEqual(2);

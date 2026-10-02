@@ -3,7 +3,7 @@
 
 // emitters/claude-code/inject.ts
 import { appendFileSync as appendFileSync5, existsSync as existsSync11, mkdirSync as mkdirSync13, readFileSync as readFileSync13 } from "fs";
-import { isAbsolute as isAbsolute6, join as join19 } from "path";
+import { isAbsolute as isAbsolute6, join as join20 } from "path";
 
 // protocol/query.ts
 import { Database } from "bun:sqlite";
@@ -304,7 +304,7 @@ function collapse(text) {
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.8",
+  version: "0.4.9",
   private: true,
   type: "module",
   scripts: {
@@ -4979,7 +4979,7 @@ var MOMENTS = {
   autosave: { label: "Save from the log", what: "Saves what your agent didn't record, privately, marked as having no reason." },
   checks: { label: "Run checks", what: "Runs a dead end's test command before showing it, to see if it still fails." },
   notices: { label: "Notes to you", what: "A line in your terminal after a session saying what ANVC did." },
-  rules: { label: "Writing rules", what: "The project's writing rules: a list when a session starts, and a rule set's text before your agent writes what it covers." },
+  rules: { label: "Writing rules", what: "A rule set's text before your agent writes what it covers, such as a commit message." },
   tools: { label: "Tool notes", what: "Notes on when to use which tool, at the start of a session and after compaction." },
   status: { label: "Status", what: "What's in progress, done recently and up next, when a session starts or its context is compacted." }
 };
@@ -4988,12 +4988,12 @@ var LEVELS = {
   auto: {
     label: "Automatic",
     what: "Shows your agent past attempts as it works.",
-    moments: every(true)
+    moments: { ...every(true), goals: false }
   },
   start: {
     label: "At the start",
     what: "Briefs your agent when a session starts, then stays quiet.",
-    moments: { ...every(true), prompts: false, failures: false, subagents: false, results: false }
+    moments: { ...every(true), goals: false, prompts: false, failures: false, subagents: false, results: false }
   },
   ask: {
     label: "When asked",
@@ -5333,7 +5333,8 @@ function briefForAgent(b) {
 
 // protocol/rules.ts
 import { readFileSync as readFileSync10, statSync as statSync8 } from "fs";
-import { resolve as resolve6 } from "path";
+import { homedir as homedir8 } from "os";
+import { basename as basename4, join as join18, resolve as resolve6 } from "path";
 var COMMIT = "commit";
 var shape = (x) => ({ name: x.name, applies: x.applies ?? [], source: x.source ?? null, text: x.text ?? null });
 function listRules(repo) {
@@ -5409,20 +5410,26 @@ function ruleText(repo, set) {
   const text = section(body, heading);
   return text === null ? { missing: `${path} has no heading "${heading}".` } : { text };
 }
-var isCommit = (command) => /(^|[\s;&|(])git(\s+-[cC]\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+commit\b/.test(command);
-function rulesIndex(repo) {
-  const sets = listRules(repo);
-  if (!sets.length)
-    return null;
-  const head = "anvc: this repository keeps writing rules for these kinds of text. Read a rule set before writing what it covers: " + "open it where it's kept, or call anvc_rules with `for` set to the file's path, or to commit.";
-  const lines = fit(sets.map((set) => {
-    const got = set.text === null ? ruleText(repo, set) : null;
-    return `- ${set.remote ? `"${set.name}" (from ${set.remote})` : set.name}: ${set.applies.join(", ")} \xB7 ${where(set)}${got && "missing" in got ? ", which isn't there now" : ""}`;
-  }), 1200 - head.length - 59);
-  const left = sets.length - lines.length;
-  return [head, ...lines, ...left ? [`- and ${left} more; anvc_rules lists them all`] : [], ...sets.some((s) => s.remote) ? [QUOTED] : []].join(`
-`);
+function ruleFiles(repo) {
+  const home = homedir8();
+  const candidates = [
+    [join18(process.env.CLAUDE_CONFIG_DIR ?? join18(home, ".claude"), "CLAUDE.md"), "everywhere"],
+    [join18(process.env.CODEX_HOME ?? join18(home, ".codex"), "AGENTS.md"), "everywhere"],
+    [resolve6(repo, "AGENTS.md"), "project"],
+    [resolve6(repo, "CLAUDE.md"), "project"]
+  ];
+  return candidates.flatMap(([file, scope]) => {
+    try {
+      if (statSync8(file).size > 256 * 1024)
+        return [];
+      const text = readFileSync10(file, "utf8").trim();
+      return text ? [{ path: scope === "everywhere" ? file.replace(home, "~") : basename4(file), scope, text }] : [];
+    } catch {
+      return [];
+    }
+  });
 }
+var isCommit = (command) => /(^|[\s;&|(])git(\s+-[cC]\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+commit\b/.test(command);
 function ruleBlock(repo, set, max = 6000) {
   const head = `${set.remote ? `"${set.name}", fetched from ${set.remote}` : set.name} (${set.applies.join(", ")}; ${where(set)})`;
   const got = ruleText(repo, set);
@@ -5450,14 +5457,6 @@ function rulesFor(repo, target) {
 }
 function rulesContext(repo, event, target, seen) {
   const budget = 7000;
-  if (event === "SessionStart" || event === "SubagentStart") {
-    if (seen.has("@rules"))
-      return null;
-    const index = rulesIndex(repo);
-    if (index)
-      seen.add("@rules");
-    return index;
-  }
   if (!target)
     return null;
   const fresh = listRules(repo).filter((s) => covers(s, target) && !seen.has(`@rule:${s.id}`));
@@ -5506,9 +5505,9 @@ function clean(input) {
     throw new Error(`Rules are read from a Markdown or text file, and ${input.source.path} isn't one.`);
   return { name: input.name.trim(), applies, ...input.text !== undefined ? { text: input.text.trim() } : { source: input.source } };
 }
-function addRule(repo, input, actor, why) {
+function addRule(repo, input, actor, why, tier = defaultTier(repo)) {
   const rule = clean(input);
-  return appendKept(repo, { rule }, `Writing rules: ${rule.name}`, why, actor, defaultTier(repo)).id;
+  return appendKept(repo, { rule }, `Writing rules: ${rule.name}`, why, actor, tier).id;
 }
 function find(repo, id) {
   const set = listRules(repo).find((s) => s.id === id);
@@ -5654,8 +5653,8 @@ function ruleCommand(repo, command, positional, argv) {
 
 // protocol/tools.ts
 import { existsSync as existsSync10, readdirSync as readdirSync6, readFileSync as readFileSync11 } from "fs";
-import { homedir as homedir8 } from "os";
-import { basename as basename4, join as join18, resolve as resolve7 } from "path";
+import { homedir as homedir9 } from "os";
+import { basename as basename5, join as join19, resolve as resolve7 } from "path";
 // scripts/hookfiles.ts
 var quoted = (path) => `"${path.replace(/["$`\\]/g, "\\$&")}"`;
 var isOurs = (entry) => /emitters\/claude-code\/(capture|inject|stop)\.ts/.test(JSON.stringify(entry));
@@ -5720,14 +5719,14 @@ var obj = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : {};
 var list = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : typeof v === "string" ? [v] : [];
 var json = (file) => obj(readJson(file, {}));
 var tilde = (text) => {
-  const home = homedir8();
+  const home = homedir9();
   return home && home !== "/" ? text.split(`${home}/`).join("~/").split(`${home}\\`).join("~\\") : text;
 };
 var SCRIPT = /\.(?:[cm]?js|ts|sh|bash|py|rb|pl|ps1)$/;
 function howRuns(words) {
   const clean = words.map((w) => w.replace(/["']/g, "")).filter(Boolean);
   const what = clean.slice(1).find((w) => /^@[\w.-]+\/[\w.-]+(@[\w.^~-]+)?$/.test(w) || SCRIPT.test(w) || /^[\w.-]*mcp[\w.-]*(@[\w.^~-]+)?$/i.test(w));
-  return scrub([basename4(clean[0] ?? ""), what && (what.startsWith("@") ? what : basename4(what))].filter(Boolean).join(" "));
+  return scrub([basename5(clean[0] ?? ""), what && (what.startsWith("@") ? what : basename5(what))].filter(Boolean).join(" "));
 }
 function server(entry) {
   const names = (...values) => [...new Set(values.flatMap((v) => Array.isArray(v) ? list(v) : Object.keys(obj(v))))].sort();
@@ -5748,7 +5747,7 @@ function server(entry) {
 function hookName(command) {
   const words = command.split(/\s+/).map((w) => w.replace(/["']/g, "")).filter((w) => w && !w.includes("="));
   const script = words.find((w) => SCRIPT.test(w));
-  return scrub(basename4(script ?? words[0] ?? "")) || "hook";
+  return scrub(basename5(script ?? words[0] ?? "")) || "hook";
 }
 var ANVC_SERVER = /protocol\/mcp\.ts/;
 function servers(map, where, file, state, anvc = false) {
@@ -5793,30 +5792,30 @@ function hooks(map, where, file, state, anvc = false) {
 function skills(dir, where, state, anvc = false) {
   let names = [];
   try {
-    names = readdirSync6(dir).filter((n) => existsSync10(join18(dir, n, "SKILL.md"))).sort();
+    names = readdirSync6(dir).filter((n) => existsSync10(join19(dir, n, "SKILL.md"))).sort();
   } catch {
     return [];
   }
-  return names.map((name) => ({ kind: "skill", name, where, state: state(name), anvc, file: tilde(join18(dir, name, "SKILL.md")) }));
+  return names.map((name) => ({ kind: "skill", name, where, state: state(name), anvc, file: tilde(join19(dir, name, "SKILL.md")) }));
 }
 function commands(paths, where, state, anvc) {
   const files = paths.flatMap((p) => {
     try {
-      return p.endsWith(".md") ? existsSync10(p) ? [p] : [] : readdirSync6(p).filter((n) => n.endsWith(".md")).map((n) => join18(p, n));
+      return p.endsWith(".md") ? existsSync10(p) ? [p] : [] : readdirSync6(p).filter((n) => n.endsWith(".md")).map((n) => join19(p, n));
     } catch {
       return [];
     }
   });
-  return files.map((f) => ({ kind: "command", name: basename4(f, ".md"), where, state, anvc, file: tilde(f) }));
+  return files.map((f) => ({ kind: "command", name: basename5(f, ".md"), where, state, anvc, file: tilde(f) }));
 }
 function claudeConfig() {
-  const legacy = join18(claudeDir(), ".config.json");
-  const file = existsSync10(legacy) ? legacy : join18(process.env.CLAUDE_CONFIG_DIR || homedir8(), ".claude.json");
+  const legacy = join19(claudeDir(), ".config.json");
+  const file = existsSync10(legacy) ? legacy : join19(process.env.CLAUDE_CONFIG_DIR || homedir9(), ".claude.json");
   return { file, data: json(file) };
 }
 function claudeCode(repo, root) {
   const dir = claudeDir();
-  const layers = [join18(dir, "settings.json"), ...repo ? [join18(repo, ".claude/settings.json"), join18(repo, ".claude/settings.local.json")] : []].map(json);
+  const layers = [join19(dir, "settings.json"), ...repo ? [join19(repo, ".claude/settings.json"), join19(repo, ".claude/settings.local.json")] : []].map(json);
   const merged = (key) => Object.assign({}, ...layers.map((l) => obj(l[key])));
   const last = (key) => layers.map((l) => l[key]).filter((v) => v !== undefined).at(-1);
   const config = claudeConfig();
@@ -5835,43 +5834,43 @@ function claudeCode(repo, root) {
   const out = [
     ...servers(config.data.mcpServers, "every project", config.file, userOn),
     ...servers(project.mcpServers, "this project", config.file, userOn),
-    ...repo ? servers(json(join18(repo, ".mcp.json")).mcpServers, "this project", join18(repo, ".mcp.json"), (name) => disabled.has(name) || refused.has(name) ? "off" : approved.has(name) || everyMcpjson ? "on" : "unknown") : [],
-    ...hooks(layers[0].hooks, "every project", join18(dir, "settings.json"), () => hooksOff ? "off" : "on"),
-    ...repo ? ["settings.json", "settings.local.json"].flatMap((name, i) => hooks(layers[i + 1].hooks, "this project", join18(repo, ".claude", name), () => hooksOff ? "off" : "on")) : [],
-    ...skills(join18(dir, "skills"), "every project", (n) => skillState(n)),
-    ...repo ? skills(join18(repo, ".claude/skills"), "this project", (n) => skillState(n)) : []
+    ...repo ? servers(json(join19(repo, ".mcp.json")).mcpServers, "this project", join19(repo, ".mcp.json"), (name) => disabled.has(name) || refused.has(name) ? "off" : approved.has(name) || everyMcpjson ? "on" : "unknown") : [],
+    ...hooks(layers[0].hooks, "every project", join19(dir, "settings.json"), () => hooksOff ? "off" : "on"),
+    ...repo ? ["settings.json", "settings.local.json"].flatMap((name, i) => hooks(layers[i + 1].hooks, "this project", join19(repo, ".claude", name), () => hooksOff ? "off" : "on")) : [],
+    ...skills(join19(dir, "skills"), "every project", (n) => skillState(n)),
+    ...repo ? skills(join19(repo, ".claude/skills"), "this project", (n) => skillState(n)) : []
   ];
   const enabled = merged("enabledPlugins");
-  const installed = obj(json(join18(dir, "plugins/installed_plugins.json")).plugins);
+  const installed = obj(json(join19(dir, "plugins/installed_plugins.json")).plugins);
   for (const [key, installs] of Object.entries(installed)) {
     const here = (Array.isArray(installs) ? installs : []).map(obj).filter((i) => i.scope === "user" || thisProject(i.projectPath));
     const install = here.at(-1);
     if (!install || typeof install.installPath !== "string")
       continue;
     const path = install.installPath;
-    const manifest = json(join18(path, ".claude-plugin/plugin.json"));
+    const manifest = json(join19(path, ".claude-plugin/plugin.json"));
     const name = typeof manifest.name === "string" ? manifest.name : key.split("@")[0];
     const state = enabled[key] === true ? "on" : enabled[key] === false ? "off" : "unknown";
     const anvc = name === "anvc";
-    out.push({ kind: "plugin", name, where: here.some((i) => i.scope === "user") ? "every project" : "this project", state, anvc, file: tilde(join18(path, ".claude-plugin/plugin.json")) });
+    out.push({ kind: "plugin", name, where: here.some((i) => i.scope === "user") ? "every project" : "this project", state, anvc, file: tilde(join19(path, ".claude-plugin/plugin.json")) });
     const within = (p) => resolve7(path, p);
-    const mcp = typeof manifest.mcpServers === "string" || Array.isArray(manifest.mcpServers) ? list(manifest.mcpServers).map((f) => [within(f), json(within(f))]) : manifest.mcpServers ? [[join18(path, ".claude-plugin/plugin.json"), { mcpServers: manifest.mcpServers }]] : [[join18(path, ".mcp.json"), json(join18(path, ".mcp.json"))]];
+    const mcp = typeof manifest.mcpServers === "string" || Array.isArray(manifest.mcpServers) ? list(manifest.mcpServers).map((f) => [within(f), json(within(f))]) : manifest.mcpServers ? [[join19(path, ".claude-plugin/plugin.json"), { mcpServers: manifest.mcpServers }]] : [[join19(path, ".mcp.json"), json(join19(path, ".mcp.json"))]];
     for (const [file, data] of mcp)
       out.push(...servers(data.mcpServers ?? data, name, file, (s) => state === "on" && disabled.has(s) ? "off" : state, anvc));
-    const hookFiles = typeof manifest.hooks === "string" || Array.isArray(manifest.hooks) ? list(manifest.hooks).map((f) => [within(f), json(within(f))]) : manifest.hooks ? [[join18(path, ".claude-plugin/plugin.json"), obj(manifest.hooks)]] : [[join18(path, "hooks/hooks.json"), json(join18(path, "hooks/hooks.json"))]];
+    const hookFiles = typeof manifest.hooks === "string" || Array.isArray(manifest.hooks) ? list(manifest.hooks).map((f) => [within(f), json(within(f))]) : manifest.hooks ? [[join19(path, ".claude-plugin/plugin.json"), obj(manifest.hooks)]] : [[join19(path, "hooks/hooks.json"), json(join19(path, "hooks/hooks.json"))]];
     for (const [file, data] of hookFiles)
       out.push(...hooks(data.hooks ?? data, name, file, () => hooksOff ? "off" : state, anvc));
-    for (const folder of [join18(path, "skills"), ...list(manifest.skills).map(within)]) {
+    for (const folder of [join19(path, "skills"), ...list(manifest.skills).map(within)]) {
       out.push(...skills(folder, name, (s) => state === "on" ? skillState(`${name}:${s}`, s) : state, anvc));
     }
-    out.push(...commands([join18(path, "commands"), ...list(manifest.commands).map(within)], name, state, anvc));
+    out.push(...commands([join19(path, "commands"), ...list(manifest.commands).map(within)], name, state, anvc));
   }
   return out;
 }
 var snake = (event) => event.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 function codex(repo) {
   const dir = codexDir();
-  const file = join18(dir, "config.toml");
+  const file = join19(dir, "config.toml");
   let config = {};
   try {
     config = obj(Bun.TOML.parse(readFileSync11(file, "utf8")));
@@ -5885,15 +5884,15 @@ function codex(repo) {
   return [
     ...servers(config.mcp_servers, "every project", file, (_, entry) => entry.enabled === false ? "off" : "on"),
     ...hooks(inline, "every project", file, hookState(file)),
-    ...hooksFile(join18(dir, "hooks.json"), "every project"),
-    ...repo ? hooksFile(join18(repo, ".codex/hooks.json"), "this project") : []
+    ...hooksFile(join19(dir, "hooks.json"), "every project"),
+    ...repo ? hooksFile(join19(repo, ".codex/hooks.json"), "this project") : []
   ];
 }
 function cursor(repo) {
-  const dirs = [[cursorDir(), "every project"], ...repo ? [[join18(repo, ".cursor"), "this project"]] : []];
+  const dirs = [[cursorDir(), "every project"], ...repo ? [[join19(repo, ".cursor"), "this project"]] : []];
   return dirs.flatMap(([dir, where]) => [
-    ...servers(json(join18(dir, "mcp.json")).mcpServers, where, join18(dir, "mcp.json"), () => "unknown"),
-    ...hooks(json(join18(dir, "hooks.json")).hooks, where, join18(dir, "hooks.json"), () => "on")
+    ...servers(json(join19(dir, "mcp.json")).mcpServers, where, join19(dir, "mcp.json"), () => "unknown"),
+    ...hooks(json(join19(dir, "hooks.json")).hooks, where, join19(dir, "hooks.json"), () => "on")
   ]);
 }
 var KIND_ORDER = ["mcp", "plugin", "skill", "command", "hook"];
@@ -6522,7 +6521,7 @@ ${drift.map((l) => `    ${l}`).join(`
   return hit.recheck ? `${head} [still true? \`${hit.recheck}\`]${more}` : `${head}${more}`;
 }
 var named = new Map;
-function fit4(header, items, render) {
+function fit5(header, items, render) {
   const kept = [];
   const shown = { ids: [], titles: [], verified: [] };
   let size = header.length;
@@ -6545,12 +6544,12 @@ ${kept.join(`
   named.set(text, shown);
   return text;
 }
-var resultsBlock = (header, views, all) => fit4(header, views, (view) => ({
+var resultsBlock = (header, views, all) => fit5(header, views, (view) => ({
   text: describe(view, checkResult(served, view, all), all),
   id: view.id,
   title: `${view.name} = ${view.value}`.slice(0, 90)
 }));
-var block = (header, hits) => fit4(header, hits, (hit) => {
+var block = (header, hits) => fit5(header, hits, (hit) => {
   const checked = hit.recheck && hit.status === "abandoned" && served && !remoteOf(hit.ref) ? check(hit.recheck) : null;
   return {
     text: line(hit, checked),
@@ -6561,7 +6560,7 @@ var block = (header, hits) => fit4(header, hits, (hit) => {
 });
 function claimed(session) {
   const dir = stateRoot();
-  const file = join19(dir, `${session.replace(/[^\w.-]/g, "-")}.txt`);
+  const file = join20(dir, `${session.replace(/[^\w.-]/g, "-")}.txt`);
   const seen = new Set;
   try {
     if (existsSync11(file)) {

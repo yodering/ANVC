@@ -29,7 +29,7 @@ export const MOMENTS = {
   autosave: { label: "Save from the log", what: "Saves what your agent didn't record, privately, marked as having no reason." },
   checks: { label: "Run checks", what: "Runs a dead end's test command before showing it, to see if it still fails." },
   notices: { label: "Notes to you", what: "A line in your terminal after a session saying what ANVC did." },
-  rules: { label: "Writing rules", what: "The project's writing rules: a list when a session starts, and a rule set's text before your agent writes what it covers." },
+  rules: { label: "Writing rules", what: "A rule set's text before your agent writes what it covers, such as a commit message." },
   tools: { label: "Tool notes", what: "Notes on when to use which tool, at the start of a session and after compaction." },
   status: { label: "Status", what: "What's in progress, done recently and up next, when a session starts or its context is compacted." },
 } as const;
@@ -41,15 +41,17 @@ export type Level = "auto" | "start" | "ask";
 const every = (on: boolean) => Object.fromEntries(Object.keys(MOMENTS).map((k) => [k, on])) as Record<Moment, boolean>;
 
 export const LEVELS: Record<Level, { label: string; what: string; moments: Record<Moment, boolean> }> = {
+  // Goals are for the person to see (protocol/absorb.ts keeps them), so no
+  // level puts them in front of the agent unless the person switches it on.
   auto: {
     label: "Automatic",
     what: "Shows your agent past attempts as it works.",
-    moments: every(true),
+    moments: { ...every(true), goals: false },
   },
   start: {
     label: "At the start",
     what: "Briefs your agent when a session starts, then stays quiet.",
-    moments: { ...every(true), prompts: false, failures: false, subagents: false, results: false },
+    moments: { ...every(true), goals: false, prompts: false, failures: false, subagents: false, results: false },
   },
   ask: {
     label: "When asked",

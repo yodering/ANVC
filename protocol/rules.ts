@@ -15,7 +15,8 @@
  * quoted with where it came from, and change only rule sets fetched too.
  */
 import { readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, join, resolve } from "node:path";
 import { defaultTier, readRecords, RULE_FILE, tierOf, type CheckpointRecord, type Tier } from "./record";
 import { fit, QUOTED, remoteOf } from "./query";
 import { flag } from "./args";
@@ -118,31 +119,34 @@ export function ruleText(repo: string, set: RuleSet): { text: string } | { missi
   return text === null ? { missing: `${path} has no heading "${heading}".` } : { text };
 }
 
+/**
+ * Files that hold writing rules without anyone pointing a rule set at them:
+ * the person's own for every project, which their agent already reads, and
+ * this repository's. Shown on the Writing rules page as they are, never
+ * copied into records or given to the agent again.
+ */
+export function ruleFiles(repo: string): Array<{ path: string; scope: "everywhere" | "project"; text: string }> {
+  const home = homedir();
+  const candidates: Array<[string, "everywhere" | "project"]> = [
+    [join(process.env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "CLAUDE.md"), "everywhere"],
+    [join(process.env.CODEX_HOME ?? join(home, ".codex"), "AGENTS.md"), "everywhere"],
+    [resolve(repo, "AGENTS.md"), "project"],
+    [resolve(repo, "CLAUDE.md"), "project"],
+  ];
+  return candidates.flatMap(([file, scope]) => {
+    try {
+      if (statSync(file).size > 256 * 1024) return [];
+      const text = readFileSync(file, "utf8").trim();
+      return text ? [{ path: scope === "everywhere" ? file.replace(home, "~") : basename(file), scope, text }] : [];
+    } catch { return []; }
+  });
+}
+
 // ------------------------------------------------------------ for the agent
 
 /** Whether a shell command makes a commit: `git commit`, `git -C dir commit`. */
 export const isCommit = (command: string): boolean =>
   /(^|[\s;&|(])git(\s+-[cC]\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+commit\b/.test(command);
-
-/**
- * The list an agent gets when a session starts: each rule set's name, what
- * it covers and where its text is. Short, so it fits the briefing; the text
- * comes when it's needed.
- */
-function rulesIndex(repo: string): string | null {
-  const sets = listRules(repo);
-  if (!sets.length) return null;
-  const head = "anvc: this repository keeps writing rules for these kinds of text. Read a rule set before writing what it covers: "
-    + "open it where it's kept, or call anvc_rules with `for` set to the file's path, or to commit.";
-  // 1,200 characters in all, with room kept for the line that says how many more.
-  const lines = fit(sets.map((set) => {
-    const got = set.text === null ? ruleText(repo, set) : null;
-    return `- ${set.remote ? `"${set.name}" (from ${set.remote})` : set.name}: ${set.applies.join(", ")} · ${where(set)}${
-      got && "missing" in got ? ", which isn't there now" : ""}`;
-  }), 1_200 - head.length - 59);
-  const left = sets.length - lines.length;
-  return [head, ...lines, ...(left ? [`- and ${left} more; anvc_rules lists them all`] : []), ...(sets.some((s) => s.remote) ? [QUOTED] : [])].join("\n");
-}
 
 /** One rule set's text for the agent, cut at a line past `max` characters. Fetched text is quoted. */
 function ruleBlock(repo: string, set: RuleSet, max = 6_000): string {
@@ -167,19 +171,13 @@ function rulesFor(repo: string, target: string): string | null {
 interface Seen { has: (key: string) => boolean; add: (key: string) => void }
 
 /**
- * What the injection hook says about writing rules, once a session each:
- * the index when a session or subagent starts (again after compaction, which
- * forgets what was said), and a rule set's text the first time the agent is
- * about to write what it covers. Null when there's nothing new to say.
+ * What the injection hook says about writing rules: a rule set's text the
+ * first time in a session the agent is about to write what it covers. Null
+ * when there's nothing new to say. A session start says nothing about them:
+ * the list is for the person to see, on the Writing rules page.
  */
 export function rulesContext(repo: string, event: string, target: string | null, seen: Seen): string | null {
   const budget = 7_000;
-  if (event === "SessionStart" || event === "SubagentStart") {
-    if (seen.has("@rules")) return null;
-    const index = rulesIndex(repo);
-    if (index) seen.add("@rules");
-    return index;
-  }
   if (!target) return null;
   const fresh = listRules(repo).filter((s) => covers(s, target) && !seen.has(`@rule:${s.id}`));
   if (!fresh.length) return null;
@@ -237,9 +235,9 @@ function clean(input: RuleInput): Rule {
 }
 
 /** Adds a rule set. Returns its id. */
-export function addRule(repo: string, input: RuleInput, actor: Actor, why?: string): string {
+export function addRule(repo: string, input: RuleInput, actor: Actor, why?: string, tier: Tier = defaultTier(repo)): string {
   const rule = clean(input);
-  return appendKept(repo, { rule }, `Writing rules: ${rule.name}`, why, actor, defaultTier(repo)).id;
+  return appendKept(repo, { rule }, `Writing rules: ${rule.name}`, why, actor, tier).id;
 }
 
 function find(repo: string, id: string): RuleSet {

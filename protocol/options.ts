@@ -22,6 +22,7 @@ import { DEFAULT_PRESET, PRESETS, readDefaults, readPolicy } from "./policy";
 import { prePushOn } from "./prepush";
 import { samePath } from "./rawlog";
 import { DATA_MODES, DEFAULT_DATA_MODE, dataMode, everywhereDataMode } from "./results";
+import { ABSORB_MODES, absorbMode, ABSORB_COST, DEFAULT_ABSORB_MODE } from "./absorb";
 import { CLI, GLOBAL, installs, managedBy, SETUP } from "./version";
 
 type Value = string | string[] | null;
@@ -148,6 +149,15 @@ export function options(root: string | null, cwd: string): Options {
     key: "results", name: "Results", what: "Whether ANVC keeps track of the numbers your project relies on.",
     here: root ? data.mode : null, everywhere: everywhereDataMode(), recommended: DEFAULT_DATA_MODE, chosen: data.from !== "default", asks: false,
     choices: Object.entries(DATA_MODES).map(([value, m]) => ({ value, label: m.label, what: m.what, ...scoped(`data ${value}`) })),
+  });
+
+  // It costs tokens on the person's plan, so an agent asks before turning it on.
+  const absorbing = absorbMode(root);
+  settings.push({
+    key: "absorb", name: "Goals, writing rules and map from your sessions",
+    what: `Whether a small model keeps the goals, sub-goals, writing rules and project map up to date from your sessions, for you to see. It runs outside the session, so it doesn't use your agent's context. ${ABSORB_COST}`,
+    here: root ? absorbing.mode : null, everywhere: absorbMode(null).mode, recommended: DEFAULT_ABSORB_MODE, chosen: absorbing.from !== "default", asks: true,
+    choices: Object.entries(ABSORB_MODES).map(([value, m]) => ({ value, label: m.label, what: m.what, ...scoped(`absorb ${value}`) })),
   });
 
   const defaults = readDefaults();

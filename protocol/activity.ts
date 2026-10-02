@@ -30,7 +30,8 @@ type ActivityKind =
   | "retired"    // the agent retired a record, or proposed to (outcome says which)
   | "nudged"     // the stop hook asked for a record
   | "recovered"  // after compaction, this session's own history was restored
-  | "autosaved"; // the agent recorded nothing, so records were built from the raw log
+  | "autosaved"  // the agent recorded nothing, so records were built from the raw log
+  | "absorbed";  // goals and writing rules were updated from the sessions (protocol/absorb.ts)
 
 export interface Activity {
   ts: string;
@@ -52,6 +53,8 @@ export interface Activity {
   verdict?: string;
   /** The hook event or MCP tool that produced this row. */
   via?: string;
+  /** For `absorbed`: what the model call used. */
+  tokens?: number;
 }
 
 const dir = () => process.env.ANVC_ACTIVITY_DIR ?? join(homedir(), ".anvc", "activity");

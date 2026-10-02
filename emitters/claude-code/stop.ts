@@ -33,6 +33,7 @@ import { capturedEdits } from "../../protocol/handoff";
 import { keepSession } from "../../protocol/keep";
 import { missingCursorPrompts } from "../../protocol/backfill";
 import { autosave } from "../../protocol/autosave";
+import { absorbLater } from "../../protocol/absorb";
 import { readAssist } from "../../protocol/assist";
 import { tellOnce } from "../../protocol/folders";
 import { captureFile, captureRows, inRepo, metricsRoot, stateRoot } from "../../protocol/rawlog";
@@ -153,6 +154,9 @@ try {
   // Then whatever the agent finished without recording is saved from the
   // raw log, so it is kept and marked as having no reason.
   const assist = readAssist(root);
+  // Goals and writing rules from what's new, when the person turned that on:
+  // in the background, so this stop isn't held up.
+  absorbLater(root, existsSync(join(import.meta.dir, "cli.js")) ? join(import.meta.dir, "cli.js") : join(import.meta.dir, "../../protocol/cli.ts"));
   if (ending) {
     if (agent === "cursor" && transcript) addCursorPrompts(root, session, transcript);
     if (assist.moments.autosave) {

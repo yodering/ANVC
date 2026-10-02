@@ -2,9 +2,9 @@
 // @bun
 
 // protocol/cli.ts
-import { existsSync as existsSync18, mkdirSync as mkdirSync16, readFileSync as readFileSync21, writeFileSync as writeFileSync13 } from "fs";
-import { homedir as homedir9 } from "os";
-import { basename as basename9, dirname as dirname11, join as join22, resolve as resolve13 } from "path";
+import { existsSync as existsSync19, mkdirSync as mkdirSync16, readFileSync as readFileSync22, writeFileSync as writeFileSync14 } from "fs";
+import { homedir as homedir10 } from "os";
+import { basename as basename11, dirname as dirname11, join as join24, resolve as resolve13 } from "path";
 
 // protocol/backfill.ts
 import { existsSync as existsSync7, readdirSync as readdirSync3, readFileSync as readFileSync7, statSync as statSync4 } from "fs";
@@ -460,7 +460,7 @@ import { join as join5 } from "path";
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.8",
+  version: "0.4.9",
   private: true,
   type: "module",
   scripts: {
@@ -5225,191 +5225,11 @@ function catchUp(repo) {
   return { sessions: found.sessions, written: done.written, skipped: done.skipped, failed: done.failed, kept, files: dataFiles2(repo, 20) };
 }
 
-// protocol/check.ts
-import { readFileSync as readFileSync15, statSync as statSync8 } from "fs";
-function describeRow(r) {
-  return [r.reason, r.where, r.by && `${r.by.step} (${r.by.ts.slice(0, 10)})`].filter(Boolean).join(": ");
-}
-var ITEM = /(?<![\w.\/-])(?:(\d+) of (\d+)(?!\d)|(\d+)\/(\d+)(?![\w\/]|\.\d)|(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?|-?\d+\.\d+(?:e[-+]?\d+)?%?|\d+(?:\.\d+)?e[-+]?\d+|\d+%))(?=x?(?:$|[^\w.]|\.(?!\d)))/gi;
-function strip(raw) {
-  return raw.replace(/`[^`]*`/g, " ").replace(/https?:\/\/\S+|\]\([^)]*\)/g, " ").replace(/\b\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+Z?)?\b/g, " ").replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ").replace(/\bv?\d+\.\d+\.\d+(?:[-.\w]*)?/g, " ").replace(/\u2212/g, "-");
-}
-var STOP = new Set(["the", "and", "with", "for", "from", "that", "this", "was", "were", "are", "its", "into", "than", "then", "but", "all", "any", "per", "via", "against", "across", "both", "each", "only", "also", "which"]);
-function wordsOf(text) {
-  return [...new Set(text.replace(ITEM, " ").toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2 && !STOP.has(w)))];
-}
-var keyOf = (m) => m[1] !== undefined ? `${m[1]}/${m[2]}` : m[3] !== undefined ? `${m[3]}/${m[4]}` : m[5];
-function unTex(line) {
-  return line.replace(/(?<!\\)%.*$/, "").replace(/\\(?:cite[tp]?|ref|eqref|autoref|[cC]ref|label|url|href|includegraphics|input|include)\*?(?:\[[^\]]*\])?\{[^}]*\}/g, " ").replace(/\\(?:num|SI|qty|SIrange)\{([^}]*)\}(?:\{[^}]*\})?/g, "$1").replace(/\{,\}/g, ",").replace(/\\%/g, "%").replace(/\\\\(\[[^\]]*\])?/g, " ").replace(/\\[a-zA-Z]+\*?/g, " ").replace(/[{}$~]/g, " ");
-}
-var ID_COLUMN = /^\s*(#|id|no\.?|nr\.?|row|item)\s*$/i;
-var REFERENCE = /\b(rows?|tables?|figs?\.?|figures?|sections?|sec\.|appendix|eqs?\.|equations?|lines?|\u00A7)\s*$/i;
-function numbersIn(text, options = {}) {
-  const tex = options.tex ?? false;
-  const out = [];
-  let fenced = false;
-  let header = [];
-  let previous = [];
-  let rows = 0;
-  let prose = [];
-  const flush = () => {
-    let sentence = [];
-    let said = "";
-    const close = () => {
-      const words = wordsOf(said);
-      for (const n of sentence)
-        out.push({ text: n.key, line: n.line, beside: [...new Set(sentence.map((o) => o.key).filter((k) => k !== n.key))], words });
-      sentence = [];
-      said = "";
-    };
-    for (const { line, text: t } of prose) {
-      for (const part of t.split(/(?<=[.!?])\s+/)) {
-        for (const m of part.matchAll(ITEM))
-          if (!REFERENCE.test(part.slice(0, m.index)))
-            sentence.push({ line, key: keyOf(m) });
-        said += ` ${part}`;
-        if (/[.!?]\s*$/.test(part))
-          close();
-      }
-    }
-    close();
-    prose = [];
-  };
-  const tableRow = (cells, at, whole) => {
-    previous = cells;
-    rows++;
-    const row = cells.flatMap((cell, c) => ID_COLUMN.test(header[c] ?? "") ? [] : [...cell.matchAll(ITEM)].filter((m) => !REFERENCE.test(cell.slice(0, m.index))).map((m) => ({ key: keyOf(m), column: c })));
-    const words = wordsOf(whole);
-    for (const { key, column } of row)
-      out.push({ text: key, line: at, beside: [...new Set(row.map((r) => r.key).filter((k) => k !== key))], words: [...new Set([...words, ...wordsOf(header[column] ?? "")])] });
-  };
-  const endTable = () => {
-    header = [];
-    previous = [];
-    rows = 0;
-  };
-  text.split(/\r?\n/).forEach((raw, i) => {
-    const code = tex ? /\\(begin|end)\{(verbatim|lstlisting|minted|comment)\}/.exec(raw) : /^\s*(```|~~~)/.exec(raw);
-    if (code) {
-      flush();
-      fenced = tex ? code[1] === "begin" : !fenced;
-      return;
-    }
-    if (fenced)
-      return;
-    if (tex) {
-      if (/\\(midrule|hline)\b/.test(raw) && !/(?<!\\)&/.test(raw)) {
-        flush();
-        if (/midrule/.test(raw) || rows === 1)
-          header = previous;
-        return;
-      }
-      if (/\\(begin|end)\{(tabular|table|tabularx|longtable)\*?\}/.test(raw)) {
-        flush();
-        endTable();
-        return;
-      }
-      if (/(?<!\\)&/.test(raw)) {
-        flush();
-        const cells = raw.split(/(?<!\\)&/).map((c) => strip(unTex(c)));
-        tableRow(cells, i + 1, cells.join(" "));
-        return;
-      }
-      const line = strip(unTex(raw));
-      if (!line.trim() || /^\s*\\(section|subsection|subsubsection|paragraph|chapter|item)\b/.test(raw))
-        flush();
-      if (line.trim())
-        prose.push({ line: i + 1, text: line });
-      return;
-    }
-    const line = strip(raw);
-    if (/^\s*\|/.test(raw)) {
-      flush();
-      if (/^\s*\|[\s:|-]+\|\s*$/.test(raw)) {
-        header = previous;
-        return;
-      }
-      tableRow(line.split("|").slice(1, -1), i + 1, line);
-      return;
-    }
-    endTable();
-    if (!line.trim() || /^\s*(#|[-*+]\s|\d+\.\s)/.test(raw))
-      flush();
-    if (line.trim())
-      prose.push({ line: i + 1, text: line });
-  });
-  flush();
-  return out;
-}
-var telling = (text) => /\d\s*\/\s*\d/.test(text) || significant(text) >= 3;
-function checkDocument(repo, path) {
-  const text = readFileSync15(path, "utf8");
-  const before = statSync8(path).mtimeMs;
-  const flat = (t) => t.replace(/\s+/g, " ").trim();
-  const page = flat(text);
-  const scope = { results: listResults(repo) };
-  const all = scope.results;
-  const verdict = ({ text: number, beside, words }) => {
-    const w = whence(repo, number, 40, scope, { beside, words, before });
-    const own = (o) => {
-      const l = flat(o.line);
-      return l.length >= 12 && page.includes(l);
-    };
-    w.outputs = w.outputs.filter((o) => !own(o));
-    w.reads = w.reads.filter((o) => !own(o));
-    const by = (o) => ({ command: o.command, step: mainStep(o.command), ts: o.ts });
-    const result = w.results[0];
-    if (result) {
-      const check = checkResult(repo, result, all);
-      return { state: check.stale ? "changed" : "found", reason: check.stale ? "A recorded result, and what it depends on changed since" : "A recorded result", where: `${result.name} (${result.status})` };
-    }
-    const file = w.files[0];
-    if (file)
-      return { state: file.changed ? "changed" : "found", reason: file.changed ? "In a file a command wrote, and the file changed since" : "In a file a command wrote", where: `${file.path} \u2192 ${file.key}`, by: by(file), evidence: `${file.key} = ${file.found}` };
-    const best = (list) => [...list].sort((a, b) => b.score - a.score || a.ts.localeCompare(b.ts));
-    const inLine = best(w.outputs.filter((o) => o.beside));
-    const inRun = best(w.outputs.filter((o) => !o.beside && o.same_run));
-    const lead = inLine[0] ?? inRun[0];
-    const differs = (o) => o.command !== lead.command && flat(o.line) !== flat(lead.line);
-    const rival = (inLine[0] ? inLine : inRun).find((o) => differs(o) && o.score === lead.score);
-    if (lead && !rival)
-      return { state: "found", reason: "Printed with the numbers beside it", by: by(lead), evidence: lead.line };
-    if (lead)
-      return { state: "unsure", reason: "More than one run printed it with the numbers beside it", by: by(lead), evidence: lead.line };
-    const printed = best(w.outputs)[0] ?? w.outputs[0];
-    const commands = new Set([...w.outputs, ...w.reads.filter((r) => r.again)].map((o) => o.command)).size;
-    if (printed && !beside.length && telling(number) && commands === 1 && (printed.score ?? 0) >= 1)
-      return { state: "found", reason: "Printed", by: by(printed), evidence: printed.line };
-    const inFiles = [...w.elsewhere].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    const other = inFiles[0];
-    const commit = other?.commit ? `, in commit ${other.commit}` : "";
-    if (other && inFiles.length === 1 && (other.score ?? 0) >= 1)
-      return { state: "found", reason: "In a data file", where: `${other.path} \u2192 ${other.key}${commit}`, evidence: `${other.key} = ${other.found}` };
-    if (printed) {
-      const reason = beside.length ? "Printed, but not with the numbers beside it" : commands > 1 ? `Printed by ${commands} different commands` : telling(number) ? "Printed, in a line that shares no words with its sentence" : "Printed, but too short to tell apart";
-      return { state: "unsure", reason, by: by(printed), evidence: printed.line };
-    }
-    if (other)
-      return { state: "unsure", reason: inFiles.length > 1 ? `In ${inFiles.length} data files` : "In a data file, under a name unlike the text around it", where: `${other.path} \u2192 ${other.key}${commit}`, evidence: `${other.key} = ${other.found}` };
-    const reread = w.reads[0];
-    if (reread)
-      return { state: "unsure", reason: "Only read back from a file", by: by(reread), evidence: reread.line };
-    return { state: "missing", reason: "No command here printed it, and no data file holds it" };
-  };
-  const rows = new Map;
-  const asked = new Map;
-  for (const n of numbersIn(text, { tex: /\.(tex|ltx)$/i.test(path) })) {
-    const question = `${n.text}|${[...n.beside].sort().join(",")}|${n.words.join(",")}`;
-    const answer = asked.get(question) ?? verdict(n);
-    asked.set(question, answer);
-    const key = `${n.text}|${answer.state}|${describeRow({ text: n.text, lines: [], ...answer })}|${answer.evidence ?? ""}`;
-    const row = rows.get(key) ?? { text: n.text, lines: [], ...answer };
-    if (!row.lines.includes(n.line))
-      row.lines.push(n.line);
-    rows.set(key, row);
-  }
-  return [...rows.values()];
-}
+// protocol/absorb.ts
+import { spawn as spawn3, spawnSync as spawnSync3 } from "child_process";
+import { existsSync as existsSync14, mkdtempSync as mkdtempSync2, readFileSync as readFileSync16, rmSync as rmSync7, statSync as statSync9, writeFileSync as writeFileSync11 } from "fs";
+import { tmpdir as tmpdir2 } from "os";
+import { basename as basename6, join as join18 } from "path";
 
 // protocol/goals.ts
 import { existsSync as existsSync13, mkdirSync as mkdirSync13, rmSync as rmSync6, writeFileSync as writeFileSync10 } from "fs";
@@ -5615,26 +5435,907 @@ function goalTool(repo, name, args, actor) {
   }
 }
 
-// protocol/uninstall.ts
-import { existsSync as existsSync15, readdirSync as readdirSync8, readFileSync as readFileSync17, rmSync as rmSync7, writeFileSync as writeFileSync11 } from "fs";
-import { basename as basename6, join as join18, resolve as resolve8 } from "path";
-
-// protocol/tools.ts
-import { existsSync as existsSync14, readdirSync as readdirSync7, readFileSync as readFileSync16 } from "fs";
+// protocol/rules.ts
+import { readFileSync as readFileSync15, statSync as statSync8 } from "fs";
 import { homedir as homedir8 } from "os";
 import { basename as basename5, join as join17, resolve as resolve7 } from "path";
+var COMMIT = "commit";
+var shape = (x) => ({ name: x.name, applies: x.applies ?? [], source: x.source ?? null, text: x.text ?? null });
+function listRules(repo) {
+  const sets = new Map;
+  const changes = [];
+  for (const [ref, r] of readRecords(repo)) {
+    if (!r.rule)
+      continue;
+    const remote = remoteOf(ref);
+    if (r.rule.of)
+      changes.push({ r, remote });
+    else
+      sets.set(r.id, { id: r.id, ...shape(r.rule), ts: r.ts, by: r.session.agent, remote, tier: tierOf(ref) });
+  }
+  changes.sort((a, b) => a.r.ts.localeCompare(b.r.ts));
+  for (const { r, remote } of changes) {
+    const set = sets.get(r.rule.of);
+    if (!set || remote && !set.remote)
+      continue;
+    if (r.rule.removed)
+      sets.delete(set.id);
+    else
+      Object.assign(set, shape(r.rule), { ts: r.ts, by: r.session.agent });
+  }
+  return [...sets.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+function covers(set, target) {
+  const path = target.replace(/^\.\//, "");
+  return set.applies.some((a) => path === COMMIT ? a === COMMIT : a !== COMMIT && new Bun.Glob(a).match(path));
+}
+var where = (set) => set.source ? `${set.source.path}${set.source.heading ? ` \u203A ${set.source.heading}` : ""}` : "kept in ANVC";
+var HEADING = /^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
+var bare = (heading) => heading.replace(/^#+\s*/, "").trim().toLowerCase();
+function section(markdown, heading) {
+  if (!heading)
+    return markdown.trim();
+  const want = bare(heading);
+  const out = [];
+  let fence = null;
+  let level = 0;
+  for (const line of markdown.split(/\r?\n/)) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    let h = null;
+    if (marker && (!fence || marker[0] === fence[0] && marker.length >= fence.length))
+      fence = fence ? null : marker;
+    else if (!fence)
+      h = HEADING.exec(line);
+    if (!level) {
+      if (h && bare(h[2]) === want)
+        level = h[1].length;
+      continue;
+    }
+    if (h && h[1].length <= level)
+      break;
+    out.push(line);
+  }
+  return level ? out.join(`
+`).trim() : null;
+}
+function ruleText(repo, set) {
+  if (set.text !== null)
+    return { text: set.text };
+  const { path, heading } = set.source;
+  const real = realInside(repo, path);
+  let body;
+  try {
+    if (!real || statSync8(real).size > 1024 * 1024)
+      throw new Error;
+    body = readFileSync15(real, "utf8");
+  } catch {
+    return { missing: `There's no ${path} in this repository.` };
+  }
+  const text = section(body, heading);
+  return text === null ? { missing: `${path} has no heading "${heading}".` } : { text };
+}
+function ruleFiles(repo) {
+  const home = homedir8();
+  const candidates = [
+    [join17(process.env.CLAUDE_CONFIG_DIR ?? join17(home, ".claude"), "CLAUDE.md"), "everywhere"],
+    [join17(process.env.CODEX_HOME ?? join17(home, ".codex"), "AGENTS.md"), "everywhere"],
+    [resolve7(repo, "AGENTS.md"), "project"],
+    [resolve7(repo, "CLAUDE.md"), "project"]
+  ];
+  return candidates.flatMap(([file, scope]) => {
+    try {
+      if (statSync8(file).size > 256 * 1024)
+        return [];
+      const text = readFileSync15(file, "utf8").trim();
+      return text ? [{ path: scope === "everywhere" ? file.replace(home, "~") : basename5(file), scope, text }] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+var isCommit = (command) => /(^|[\s;&|(])git(\s+-[cC]\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+commit\b/.test(command);
+function ruleBlock(repo, set, max = 6000) {
+  const head = `${set.remote ? `"${set.name}", fetched from ${set.remote}` : set.name} (${set.applies.join(", ")}; ${where(set)})`;
+  const got = ruleText(repo, set);
+  if ("missing" in got)
+    return `${head}: ${got.missing}`;
+  let text = set.remote ? got.text.split(`
+`).map((l) => `> ${l}`).join(`
+`) : got.text;
+  if (text.length > max) {
+    const cut = text.lastIndexOf(`
+`, max);
+    text = `${text.slice(0, cut > 0 ? cut : max)}
+[Cut at ${max.toLocaleString("en")} characters; the rest is in ${where(set)}.]`;
+  }
+  return `${head}:
+${text}`;
+}
+function rulesFor(repo, target) {
+  const hits = listRules(repo).filter((s) => covers(s, target));
+  if (!hits.length)
+    return null;
+  return [...hits.map((s) => ruleBlock(repo, s)), ...hits.some((s) => s.remote) ? [QUOTED] : []].join(`
+
+`);
+}
+function rulesContext(repo, event, target, seen) {
+  const budget = 7000;
+  if (!target)
+    return null;
+  const fresh = listRules(repo).filter((s) => covers(s, target) && !seen.has(`@rule:${s.id}`));
+  if (!fresh.length)
+    return null;
+  const head = target === COMMIT ? "anvc: this repository's writing rules for commit messages are below. If this commit's message doesn't follow them, amend it." : `anvc: this repository's writing rules for ${target} are below.`;
+  const blocks = [];
+  let size = head.length + QUOTED.length;
+  let quoted = false;
+  for (const set of fresh) {
+    const block = ruleBlock(repo, set, Math.max(500, budget - size - 300));
+    if (blocks.length && size + block.length + 2 > budget)
+      break;
+    blocks.push(block);
+    size += block.length + 2;
+    quoted ||= Boolean(set.remote);
+    seen.add(`@rule:${set.id}`);
+  }
+  if (!blocks.length)
+    return null;
+  return [head, ...blocks, ...quoted ? [QUOTED] : []].join(`
+
+`);
+}
+function parseFrom(repo, from) {
+  const at = from.indexOf("#");
+  const file = (at < 0 ? from : from.slice(0, at)).trim();
+  const heading = at < 0 ? "" : from.slice(at + 1).replace(/^#+\s*/, "").trim();
+  if (!file)
+    throw new Error("Name the file its rules are in, or write them out.");
+  const path = below(repo, resolve7(repo, file));
+  if (!path)
+    throw new Error(`${file} isn't inside this repository.`);
+  return { path, ...heading ? { heading } : {} };
+}
+var parseApplies = (applies) => [...new Set((Array.isArray(applies) ? applies : applies.split(",")).map((a) => String(a).trim().replace(/^\.\//, "")).filter(Boolean))];
+function clean(input) {
+  const applies = parseApplies(input.applies);
+  if (!input.name.trim())
+    throw new Error("Give the rule set a name.");
+  if (!applies.length)
+    throw new Error("Say what it applies to: file globs, or commit.");
+  if (input.text === undefined && !input.source?.path)
+    throw new Error("Name the file its rules are in, or write them out.");
+  if (input.source && !RULE_FILE.test(input.source.path))
+    throw new Error(`Rules are read from a Markdown or text file, and ${input.source.path} isn't one.`);
+  return { name: input.name.trim(), applies, ...input.text !== undefined ? { text: input.text.trim() } : { source: input.source } };
+}
+function addRule(repo, input, actor, why, tier = defaultTier(repo)) {
+  const rule = clean(input);
+  return appendKept(repo, { rule }, `Writing rules: ${rule.name}`, why, actor, tier).id;
+}
+function find(repo, id) {
+  const set = listRules(repo).find((s) => s.id === id);
+  if (!set)
+    throw new Error(`no rule set ${id}; anvc rules lists them with their ids`);
+  return set;
+}
+function changeRule(repo, id, change, actor, why) {
+  const set = find(repo, id);
+  const source = change.text !== undefined ? undefined : change.source ?? set.source ?? undefined;
+  const rule = clean({
+    name: change.name ?? set.name,
+    applies: change.applies ?? set.applies,
+    ...source ? { source } : { text: change.text ?? set.text ?? "" }
+  });
+  appendKept(repo, { rule: { ...rule, of: id } }, `Changed writing rules: ${rule.name}`, why, actor, set.tier);
+  return find(repo, id);
+}
+function removeRule(repo, id, actor, why) {
+  const set = find(repo, id);
+  appendKept(repo, { rule: { name: set.name, of: id, removed: true } }, `Removed writing rules: ${set.name}`, why, actor, set.tier);
+  return set;
+}
+function listText(repo, sets = listRules(repo)) {
+  if (!sets.length)
+    return "No writing rules here yet. Add a rule set with anvc_rule (or anvc rule add), pointing at the file and heading where the rules are written.";
+  return sets.map((s) => {
+    const got = ruleText(repo, s);
+    return `- ${s.remote ? `"${s.name}" (from ${s.remote})` : s.name} \xB7 id: ${s.id}
+  applies to: ${s.applies.join(", ")}
+  text: ${where(s)}${"missing" in got ? ` (${got.missing})` : ""}`;
+  }).join(`
+`);
+}
+var RULE_TOOLS = [
+  {
+    name: "anvc_rules",
+    description: "The writing rules this repository keeps for each kind of text: commit messages, UI text, the README, a paper. " + "With `for` set to a file path, or to commit for a commit message, you get the text of every rule set that covers it. " + "Call it before writing text of a kind that has rules, and again after your context is compacted.",
+    inputSchema: {
+      type: "object",
+      properties: { for: { type: "string", description: "A repository-relative path such as README.md, or commit." } }
+    }
+  },
+  {
+    name: "anvc_rule",
+    description: "Add, change or remove a rule set: its name, what it covers, and where its rules are written. " + "Point at the file and heading where the rules already are (AGENTS.md, Commit messages) instead of copying them; use text only for rules written nowhere else.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["add", "change", "remove"] },
+        id: { type: "string", description: "For change and remove: the rule set's id, from anvc_rules." },
+        name: { type: "string", description: 'The kind of text, as someone would say it: "Commit messages".' },
+        applies: { type: "array", items: { type: "string" }, description: "File globs such as README.md or docs/**/*.md, or commit for commit messages." },
+        source: {
+          type: "object",
+          description: "Where the rules are written: a repository-relative Markdown or text file, and the heading of their section. Without a heading, the whole file.",
+          properties: { path: { type: "string" }, heading: { type: "string" } },
+          required: ["path"]
+        },
+        text: { type: "string", description: "The rules themselves, when they aren't written in a file." },
+        why: { type: "string", description: "Why you're adding, changing or removing it." }
+      },
+      required: ["action"]
+    }
+  }
+];
+function ruleTool(repo, name, args, actor) {
+  const str = (x) => typeof x === "string" && x.trim() ? x : undefined;
+  if (name === "anvc_rules") {
+    const target = str(args.for)?.trim();
+    if (!target)
+      return listText(repo);
+    const path = target === COMMIT ? COMMIT : below(repo, resolve7(repo, target)) ?? target;
+    return rulesFor(repo, path) ?? `No writing rules here cover ${path === COMMIT ? "commit messages" : path}.`;
+  }
+  const why = str(args.why);
+  const source = args.source && typeof args.source === "object" ? args.source : null;
+  const input = {
+    ...str(args.name) ? { name: str(args.name) } : {},
+    ...Array.isArray(args.applies) || str(args.applies) ? { applies: parseApplies(args.applies) } : {},
+    ...source && str(source.path) ? { source: parseFrom(repo, `${String(source.path)}${str(source.heading) ? `#${String(source.heading)}` : ""}`) } : {},
+    ...str(args.text) ? { text: str(args.text) } : {}
+  };
+  const id = str(args.id);
+  if (args.action === "add") {
+    if (!input.name || !input.applies?.length)
+      return "A rule set needs a name and what it applies to.";
+    const added = addRule(repo, input, actor, why);
+    return `Added:
+${listText(repo, listRules(repo).filter((s) => s.id === added))}`;
+  }
+  if (!id)
+    return "Give the rule set's id; anvc_rules lists them.";
+  if (args.action === "change") {
+    const set = changeRule(repo, id, input, actor, why);
+    return `Changed "${set.name}"
+${listText(repo, [set])}`;
+  }
+  if (args.action === "remove")
+    return `Removed "${removeRule(repo, id, actor, why).name}". Its records stay; it's no longer shown.`;
+  return "action is add, change or remove.";
+}
+var USAGE = `usage: anvc rule add "<name>" --applies "<glob>,<glob>" --from "<file>#<heading>"
+       anvc rule add "<name>" --applies commit --text "<rules>"
+       anvc rule change <id> [--name "<name>"] [--applies "..."] [--from "..." | --text "..."]
+       anvc rule remove <id>`;
+function ruleCommand(repo, command, positional, argv) {
+  if (command === "rules") {
+    console.log(ruleTool(repo, "anvc_rules", { for: flag(argv, "for") }, { kind: "person" }));
+    return 0;
+  }
+  const [verb, arg] = positional;
+  const from = flag(argv, "from");
+  const change = {
+    ...flag(argv, "name") ? { name: flag(argv, "name") } : {},
+    ...flag(argv, "applies") ? { applies: parseApplies(flag(argv, "applies")) } : {},
+    ...from ? { source: parseFrom(repo, from) } : {},
+    ...flag(argv, "text") ? { text: flag(argv, "text") } : {}
+  };
+  const why = flag(argv, "why");
+  const person = { kind: "person" };
+  try {
+    if (verb === "add" && arg && change.applies?.length && (from || change.text)) {
+      const id = addRule(repo, { ...change, name: arg }, person, why);
+      console.log(`Added "${arg}" \xB7 id: ${id}`);
+      return 0;
+    }
+    if (verb === "change" && arg && Object.keys(change).length) {
+      console.log(`Changed "${changeRule(repo, arg, change, person, why).name}".`);
+      return 0;
+    }
+    if (verb === "remove" && arg) {
+      console.log(`Removed "${removeRule(repo, arg, person, why).name}".`);
+      return 0;
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+  console.error(USAGE);
+  return 2;
+}
+
+// protocol/absorb.ts
+var ABSORB_MODES = {
+  off: { label: "Off", what: "Goals, writing rules and the map change only when you or your agent change them.", tokens: "" },
+  claude: { label: "Claude Haiku", what: "Claude Haiku updates goals, writing rules and the map after your agent's turns, through your claude login.", tokens: "About 3,500 tokens an update, at most one every 30 minutes, on your Claude plan" },
+  codex: { label: "Codex", what: "A small Codex model updates goals, writing rules and the map after your agent's turns, through your codex login.", tokens: "About 16,000 tokens an update, at most one every 30 minutes, on your ChatGPT plan" }
+};
+var DEFAULT_ABSORB_MODE = "off";
+var ABSORB_COST = "It uses your plan: with Claude Haiku, about 8,000 tokens for the first update and 3,500 for each one after, where one request from your agent in a long session sends about 300,000. Codex uses 16,000 to 20,000, most of them its own instructions.";
+var everywhereFile2 = () => join18(stateHome(), "absorb.json");
+var projectFile2 = (repo) => marker(repo, "absorb.json");
+var readMode2 = (file) => {
+  const mode = file ? readJson(file, null)?.mode : undefined;
+  return typeof mode === "string" && Object.hasOwn(ABSORB_MODES, mode) ? mode : null;
+};
+function absorbMode(repo) {
+  const project = repo ? readMode2(projectFile2(repo)) : null;
+  if (project)
+    return { mode: project, from: "project" };
+  const everywhere = readMode2(everywhereFile2());
+  if (everywhere)
+    return { mode: everywhere, from: "everywhere" };
+  return { mode: DEFAULT_ABSORB_MODE, from: "default" };
+}
+function setAbsorbMode(repo, mode) {
+  if (!Object.hasOwn(ABSORB_MODES, mode))
+    throw new Error(`mode must be one of ${Object.keys(ABSORB_MODES).join(", ")}`);
+  const file = repo ? projectFile2(repo) : everywhereFile2();
+  if (!file)
+    throw new Error("not a git repository");
+  writeJson(file, { mode });
+}
+function clearProjectAbsorbMode(repo) {
+  const file = projectFile2(repo);
+  if (file)
+    rmSync7(file, { force: true });
+}
+function absorbView(repo) {
+  return {
+    setting: absorbMode(repo),
+    everywhere: absorbMode(null).mode,
+    modes: ABSORB_MODES,
+    available: { claude: Boolean(Bun.which("claude")), codex: Boolean(Bun.which("codex")) },
+    last: readCursor(repo)
+  };
+}
+var cursorFile = (repo) => marker(repo, "absorbed.json");
+var readCursor = (repo) => {
+  const f = cursorFile(repo);
+  return f ? readJson(f, null) : null;
+};
+var EVERY_MS = 30 * 60000;
+var PROMPT_CHARS = 600;
+var MATERIAL_CHARS = 16000;
+var isAttempt = (r) => !r.objective && !r.rule && !r.tool_note && !r.status_item && Boolean(r.intent?.goal);
+function material(repo, since, captureRoot) {
+  const prompts = captureRows(repo, captureRoot, lastDays(30)).filter((r) => r.prompt && r.ts > since).map((r) => ({ ts: r.ts, session: r.session_id ?? "", text: r.prompt.replace(/\s+/g, " ").trim().slice(0, PROMPT_CHARS) })).sort((a, b) => a.ts.localeCompare(b.ts));
+  const attempts = readRecords(repo).map(([, r]) => r).filter((r) => isAttempt(r) && r.ts > since).map((r) => ({ ts: r.ts, session: r.session.run_id, status: r.outcome.status, goal: r.intent.goal.slice(0, 200), why: (r.intent.why ?? "").replace(/\s+/g, " ").slice(0, 300) })).sort((a, b) => a.ts.localeCompare(b.ts));
+  const until = [...prompts, ...attempts].reduce((m, x) => x.ts > m ? x.ts : m, since);
+  let left = MATERIAL_CHARS;
+  const keep = (list) => list.slice().reverse().filter((x) => {
+    const size = (x.text ?? "").length + (x.goal ?? "").length + (x.why ?? "").length + 40;
+    if (size > left)
+      return false;
+    left -= size;
+    return true;
+  }).reverse();
+  return { attempts: keep(attempts), prompts: keep(prompts), until };
+}
+function absorbDue(repo, now = Date.now(), captureRoot) {
+  if (absorbMode(repo).mode === "off")
+    return false;
+  const cursor = readCursor(repo);
+  if (cursor && now - Date.parse(cursor.ran) < EVERY_MS)
+    return false;
+  const m = material(repo, cursor?.since ?? "", captureRoot);
+  return m.prompts.length + m.attempts.length > 0;
+}
+var SYSTEM = `You keep a software or research project's goals and writing rules up to date for the person who runs it, from what happened in their agent sessions. Nobody else reads your answer: return one JSON object and nothing else.
+
+{"goals": [{"id": "an existing goal's id to change it, or a short name of your own for a new goal", "title": "...", "parent": "the id of the goal it belongs under: an existing one, or the name you gave a new one", "status": "todo | doing | done | dropped", "why": "one sentence: what in the sessions shows it"}],
+ "rules": [{"id": "an existing rule set's id, to change it", "name": "the kind of text, such as Replies to me or Commit messages", "applies": ["replies" or "commit" or file globs such as README.md or docs/**/*.md"], "text": "the rules, short, in the person's words"}],
+ "map": [{"part": "a name a person would say, such as the search lanes", "does": "what it is for, in one or two plain sentences", "layer": "edge | core | store | tool | surface", "owns": ["folders ending in / or files, from the project's files below"], "reads": [{"part": "another part's exact name", "what": "two or three words for what it takes"}]}]}
+
+Goals:
+- A goal is what the person is trying to achieve in this project, such as "Decide whether a 21x21 coloring exists". A sub-goal is a line of work toward a goal, such as "Break the 44-cell skeleton" or "Write up the findings as a report"; when the person starts a new line of work, add it. A single command, fix or question is neither, and neither is how the work gets done: "Scale to 192 vCPUs on AWS", "Spawn sub-agents" and "Set up the cloud runner" are never goals.
+- Use at most 3 goals and at most 6 sub-goals under each. Prefer changing an existing goal to adding a near-duplicate.
+- Include a goal only when it's new or the sessions show a change: work started on it (doing), it was finished (done), it was given up or replaced (dropped), or a clearly better title. Leave out goals that didn't change.
+
+Writing rules:
+- A writing rule says how text should be worded or laid out: its length, tone, language, words to use or avoid, structure. It applies to a kind of text (replies to the person, commit messages, docs, papers, UI text) and is meant to hold beyond one message, such as "keep replies very short and simple".
+- What to do is never a writing rule: which tools, machines, agents or steps to use, how to run or check the work. Leave all of that out.
+- Keep one rule set per kind of text, named by that kind only: "Replies to me", "Commit messages", "README", "Paper". A new rule for a kind that has a set changes that set: give its id and its whole text, old rules and new.
+- Include a rule set only when it's new or changed. Keep its text short.
+
+The project map:
+- A part is a piece of the project a person would name, such as "the search lanes" or "the cloud runner", and owns folders or files. Use at most 8 parts. Name each part's folders from the project's files below only.
+- Layers: edge touches the outside world, core is the logic in the middle, store keeps data, tool is something run by hand, surface is what a person looks at.
+- Include a part only when it's new or the sessions or files show it changed. To change one, give its exact name and all its fields. Leave the map out when nothing changed.
+
+Never invent: everything must come from the sessions and files below. Never include secrets, keys, personal details or file contents. If nothing changed, return {"goals": [], "rules": [], "map": []}.`;
+var projectFiles = (repo) => (gitOrNull(repo, ["ls-tree", "-r", "--name-only", "HEAD"]) ?? gitOrNull(repo, ["ls-files"]) ?? "").split(`
+`).filter(Boolean);
+function filesSummary(repo) {
+  const paths = projectFiles(repo);
+  const dirs = new Map;
+  const top = [];
+  for (const p of paths) {
+    const at = p.indexOf("/");
+    if (at < 0)
+      top.push(p);
+    else
+      (dirs.get(p.slice(0, at + 1)) ?? dirs.set(p.slice(0, at + 1), []).get(p.slice(0, at + 1))).push(p.slice(at + 1));
+  }
+  const lines = [...dirs].sort((a, b) => b[1].length - a[1].length).map(([d, f]) => `- ${d} (${f.length} file${f.length === 1 ? "" : "s"}: ${f.slice(0, 5).join(", ")}${f.length > 5 ? ", \u2026" : ""})`);
+  if (top.length)
+    lines.push(`- at the top: ${top.slice(0, 15).join(", ")}${top.length > 15 ? ", \u2026" : ""}`);
+  let out = "";
+  for (const line of lines) {
+    if (out.length + line.length > 3000)
+      break;
+    out += `${line}
+`;
+  }
+  return out.trimEnd();
+}
+function brief2(project, goals, rules, m, map = [], files = "") {
+  const goalLine = (g, depth) => [`${"  ".repeat(depth)}- id ${g.id} [${g.status}] ${g.title}`, ...g.subgoals.filter((s) => s.status !== "dropped").flatMap((s) => goalLine(s, depth + 1))];
+  const live = goals.filter((g) => g.status !== "dropped");
+  const dropped = allGoals(goals).filter((g) => g.status === "dropped").slice(-20);
+  return [
+    `Project: ${project}`,
+    "",
+    "Goals now:",
+    ...live.length ? live.flatMap((g) => goalLine(g, 0)) : ["(none yet)"],
+    ...dropped.length ? ["", "Dropped, so never add these again:", ...dropped.map((g) => `- ${g.title}`)] : [],
+    "",
+    "Writing rules now:",
+    ...rules.length ? rules.map((r) => `- id ${r.id} ${r.name} (${r.applies.join(", ")}): ${r.text ?? `kept in ${r.source?.path}`}`.slice(0, 400)) : ["(none yet)"],
+    "",
+    "The project map now:",
+    ...map.length ? map.map((p) => `- ${p.part}${p.layer ? ` [${p.layer}]` : ""}: ${p.does}${p.owns?.length ? ` (owns ${p.owns.join(", ")})` : ""}`.slice(0, 400)) : ["(no parts yet)"],
+    ...files ? ["", "The project's files:", files] : [],
+    "",
+    "The person's messages since the last update, oldest first:",
+    ...m.prompts.length ? m.prompts.map((p) => `- (${p.ts.slice(0, 16).replace("T", " ")}) ${p.text}`) : ["(none)"],
+    "",
+    "Attempts the agents recorded since the last update, oldest first:",
+    ...m.attempts.length ? m.attempts.map((a) => `- ${a.status}: ${a.goal}${a.why ? ` \u2014 ${a.why}` : ""}`) : ["(none)"]
+  ].join(`
+`);
+}
+var viaClaude = (system, input) => {
+  const dir = mkdtempSync2(join18(tmpdir2(), "anvc-absorb-"));
+  try {
+    const p = spawnSync3("claude", [
+      "-p",
+      "--model",
+      "haiku",
+      "--no-session-persistence",
+      "--strict-mcp-config",
+      "--setting-sources",
+      "project",
+      "--settings",
+      '{"disableAllHooks":true,"alwaysThinkingEnabled":false}',
+      "--tools",
+      "",
+      "--system-prompt",
+      system,
+      "--output-format",
+      "json"
+    ], { cwd: dir, input, encoding: "utf8", timeout: 180000, maxBuffer: 16 * 1024 * 1024 });
+    if (p.status !== 0)
+      throw new Error(`claude exited ${p.status}: ${(p.stderr || p.stdout || "").slice(0, 300)}`);
+    const out = JSON.parse(p.stdout);
+    const result = (Array.isArray(out) ? out : [out]).find((m) => m.type === "result");
+    const u = result.usage ?? {};
+    return { text: String(result.result ?? ""), tokens: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.output_tokens ?? 0) };
+  } finally {
+    rmSync7(dir, { recursive: true, force: true });
+  }
+};
+var viaCodex = (system, input) => {
+  const dir = mkdtempSync2(join18(tmpdir2(), "anvc-absorb-"));
+  try {
+    const last = join18(dir, "answer.txt");
+    const p = spawnSync3("codex", ["exec", "-m", process.env.ANVC_ABSORB_CODEX_MODEL ?? "gpt-6-luna", "-c", 'model_reasoning_effort="low"', "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--json", "-o", last, "-"], { cwd: dir, input: `${system}
+
+${input}`, encoding: "utf8", timeout: 300000, maxBuffer: 16 * 1024 * 1024 });
+    if (p.status !== 0)
+      throw new Error(`codex exited ${p.status}: ${(p.stderr || "").slice(-300)}`);
+    let tokens = 0;
+    for (const line of p.stdout.split(`
+`)) {
+      try {
+        const u = JSON.parse(line).usage;
+        if (u)
+          tokens += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0);
+      } catch {}
+    }
+    return { text: existsSync14(last) ? readFileSync16(last, "utf8") : "", tokens };
+  } finally {
+    rmSync7(dir, { recursive: true, force: true });
+  }
+};
+var LAYERS = ["edge", "core", "store", "tool", "surface"];
+function parsePlan(text) {
+  const body = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+  let raw;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    return { goals: [], rules: [], map: [] };
+  }
+  const str = (x, max) => typeof x === "string" && x.trim() ? x.trim().slice(0, max) : undefined;
+  const goals = (Array.isArray(raw?.goals) ? raw.goals : []).flatMap((g) => {
+    const title = str(g?.title, 200);
+    const status = GOAL_STATUSES.includes(g?.status) ? g.status : undefined;
+    return title && status ? [{ id: str(g.id, 40), title, parent: str(g.parent, 200), status, why: str(g.why, 300) ?? "" }] : [];
+  });
+  const rules = (Array.isArray(raw?.rules) ? raw.rules : []).flatMap((r) => {
+    const name = str(r?.name, 80);
+    const text = str(r?.text, 2000);
+    const applies = (Array.isArray(r?.applies) ? r.applies : []).map((a) => str(a, 120)).filter(Boolean);
+    return name && text && applies.length ? [{ id: str(r.id, 40), name, applies, text }] : [];
+  });
+  const map = (Array.isArray(raw?.map) ? raw.map : []).flatMap((m) => {
+    const part = str(m?.part, 80);
+    const does = str(m?.does, 400);
+    const owns = (Array.isArray(m?.owns) ? m.owns : []).map((o) => str(o, 200)).filter(Boolean);
+    const reads = (Array.isArray(m?.reads) ? m.reads : []).flatMap((r) => {
+      const p = str(r?.part, 80);
+      const w = str(r?.what, 60);
+      return p && w ? [{ part: p, what: w }] : [];
+    });
+    const layer = LAYERS.includes(m?.layer) ? m.layer : undefined;
+    return part && does ? [{ part, does, ...layer ? { layer } : {}, owns, reads }] : [];
+  });
+  return { goals, rules, map };
+}
+var NEW_GOALS = 8;
+var NEW_RULES = 3;
+function applyPlan(repo, plan, actor) {
+  const ids = [];
+  const titles = [];
+  const goals = () => allGoals(goalTree(repo));
+  const byTitle = new Map(goals().map((g) => [g.title.toLowerCase(), g.id]));
+  const local = new Map;
+  let added = 0;
+  let pending = plan.goals.map((g) => g.parent && g.parent === g.id ? { ...g, parent: undefined } : g);
+  const parentOf = (g, known) => !g.parent ? undefined : known.some((k) => k.id === g.parent) ? g.parent : local.get(g.parent) ?? byTitle.get(g.parent.toLowerCase());
+  for (let pass = 0;pending.length && pass < 4; pass++) {
+    const waiting = [];
+    for (const g of pending) {
+      const known = goals();
+      const id = (g.id && known.some((k) => k.id === g.id) ? g.id : undefined) ?? byTitle.get(g.title.toLowerCase());
+      try {
+        if (id) {
+          const before = known.find((k) => k.id === id);
+          if (before.versions.at(-1)?.by === "person" || before.status === "dropped")
+            continue;
+          const after = changeGoal(repo, id, { status: g.status, ...g.id === id ? { title: g.title } : {}, why: g.why || "From the sessions." }, actor);
+          if (after.status !== before.status || after.title !== before.title || after.proposal) {
+            ids.push(id);
+            titles.push(after.title);
+          }
+          continue;
+        }
+        const parent = parentOf(g, known);
+        if (g.parent && !parent) {
+          waiting.push(g);
+          continue;
+        }
+        if (added >= NEW_GOALS)
+          continue;
+        const newId = addGoal(repo, { title: g.title, ...parent ? { parent } : {}, status: g.status, why: g.why || "From the sessions." }, actor);
+        byTitle.set(g.title.toLowerCase(), newId);
+        if (g.id)
+          local.set(g.id, newId);
+        ids.push(newId);
+        titles.push(g.title);
+        added++;
+      } catch {}
+    }
+    if (waiting.length === pending.length)
+      break;
+    pending = waiting;
+  }
+  const sets = listRules(repo);
+  const removed = readRecords(repo).map(([, r]) => r.rule).filter((x) => x?.removed);
+  const removedNames = new Set(removed.map((x) => x.name.toLowerCase()));
+  let newRules = 0;
+  for (const r of plan.rules) {
+    const kind = (x) => [...x.applies].sort().join(",");
+    const same = sets.find((s) => s.id === r.id) ?? sets.find((s) => s.name.toLowerCase() === r.name.toLowerCase()) ?? sets.find((s) => s.text !== null && kind(s) === kind(r));
+    try {
+      if (same) {
+        if (same.text === null || same.text === r.text || same.by === "person")
+          continue;
+        changeRule(repo, same.id, { text: r.text, applies: r.applies }, actor, "From the sessions.");
+        ids.push(same.id);
+        titles.push(`Writing rules: ${r.name}`);
+        continue;
+      }
+      if (newRules >= NEW_RULES || removedNames.has(r.name.toLowerCase()))
+        continue;
+      ids.push(addRule(repo, { name: r.name, applies: r.applies, text: r.text }, actor, "From the sessions.", "private"));
+      titles.push(`Writing rules: ${r.name}`);
+      newRules++;
+    } catch {}
+  }
+  const tracked = projectFiles(repo);
+  const exists = (o) => o.endsWith("/") ? tracked.some((p) => p.startsWith(o)) : tracked.includes(o);
+  const parts = withIndex(repo, (db) => partMaps(db));
+  let newParts = 0;
+  for (const m of plan.map) {
+    const owns = [...new Set(m.owns.map((o) => o.replace(/^\.\//, "")).filter(exists))];
+    if (!owns.length)
+      continue;
+    const before = parts.find((p) => p.part.toLowerCase() === m.part.toLowerCase());
+    if (before && before.does === m.does && (before.layer ?? "") === (m.layer ?? "") && JSON.stringify(before.owns ?? []) === JSON.stringify(owns))
+      continue;
+    if (before && byPerson(repo, before.id))
+      continue;
+    if (!before && newParts >= NEW_PARTS)
+      continue;
+    try {
+      const body = { map: { part: before?.part ?? m.part, does: m.does, ...m.layer ? { layer: m.layer } : {}, owns, reads: m.reads, feeds: [], decisions: [] }, ...before ? { supersedes: before.id } : {} };
+      ids.push(appendKept(repo, body, `Map: ${before?.part ?? m.part}`, "From the sessions.", actor, defaultTier(repo)).id);
+      titles.push(`Map: ${before?.part ?? m.part}`);
+      if (!before)
+        newParts++;
+    } catch {}
+  }
+  return { ids, titles };
+}
+var NEW_PARTS = 8;
+var byPerson = (repo, id) => readRecords(repo).some(([, r]) => r.id === id && r.session.agent === "person");
+var lockFile = (repo) => marker(repo, "absorbing");
+function absorb(repo, opts = {}) {
+  const mode = absorbMode(repo).mode;
+  if (mode === "off")
+    return null;
+  const lock = lockFile(repo);
+  if (!lock)
+    return null;
+  try {
+    if (Date.now() - statSync9(lock).mtimeMs < 10 * 60000)
+      return null;
+  } catch {}
+  writeFileSync11(lock, String(process.pid));
+  try {
+    const cursor = readCursor(repo);
+    const m = material(repo, cursor?.since ?? "", opts.captureRoot);
+    const ran = new Date(opts.now ?? Date.now()).toISOString();
+    if (!m.prompts.length && !m.attempts.length)
+      return null;
+    const runner = opts.runner ?? (mode === "codex" ? viaCodex : viaClaude);
+    const answer = runner(SYSTEM, brief2(basename6(repo), goalTree(repo), listRules(repo), m, withIndex(repo, (db) => partMaps(db)), filesSummary(repo)));
+    const session = [...m.prompts, ...m.attempts].sort((a, b) => a.ts.localeCompare(b.ts)).at(-1).session || "absorbed";
+    const { ids, titles } = applyPlan(repo, parsePlan(answer.text), { kind: "agent", agent: "anvc", session });
+    writeJson(cursorFile(repo), { since: m.until, ran, runs: (cursor?.runs ?? 0) + 1, tokens: (cursor?.tokens ?? 0) + answer.tokens });
+    logActivity({ kind: "absorbed", repo, session, records: ids, titles, via: mode, tokens: answer.tokens });
+    return { written: ids.length, tokens: answer.tokens };
+  } finally {
+    rmSync7(lock, { force: true });
+  }
+}
+function absorbLater(repo, cli) {
+  try {
+    if (!absorbDue(repo))
+      return;
+    spawn3(process.execPath, [cli, "absorb", "run", "--repo", repo], { detached: true, stdio: "ignore", env: process.env }).unref();
+  } catch {}
+}
+
+// protocol/check.ts
+import { readFileSync as readFileSync17, statSync as statSync10 } from "fs";
+function describeRow(r) {
+  return [r.reason, r.where, r.by && `${r.by.step} (${r.by.ts.slice(0, 10)})`].filter(Boolean).join(": ");
+}
+var ITEM = /(?<![\w.\/-])(?:(\d+) of (\d+)(?!\d)|(\d+)\/(\d+)(?![\w\/]|\.\d)|(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?|-?\d+\.\d+(?:e[-+]?\d+)?%?|\d+(?:\.\d+)?e[-+]?\d+|\d+%))(?=x?(?:$|[^\w.]|\.(?!\d)))/gi;
+function strip(raw) {
+  return raw.replace(/`[^`]*`/g, " ").replace(/https?:\/\/\S+|\]\([^)]*\)/g, " ").replace(/\b\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+Z?)?\b/g, " ").replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ").replace(/\bv?\d+\.\d+\.\d+(?:[-.\w]*)?/g, " ").replace(/\u2212/g, "-");
+}
+var STOP = new Set(["the", "and", "with", "for", "from", "that", "this", "was", "were", "are", "its", "into", "than", "then", "but", "all", "any", "per", "via", "against", "across", "both", "each", "only", "also", "which"]);
+function wordsOf(text) {
+  return [...new Set(text.replace(ITEM, " ").toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2 && !STOP.has(w)))];
+}
+var keyOf = (m) => m[1] !== undefined ? `${m[1]}/${m[2]}` : m[3] !== undefined ? `${m[3]}/${m[4]}` : m[5];
+function unTex(line) {
+  return line.replace(/(?<!\\)%.*$/, "").replace(/\\(?:cite[tp]?|ref|eqref|autoref|[cC]ref|label|url|href|includegraphics|input|include)\*?(?:\[[^\]]*\])?\{[^}]*\}/g, " ").replace(/\\(?:num|SI|qty|SIrange)\{([^}]*)\}(?:\{[^}]*\})?/g, "$1").replace(/\{,\}/g, ",").replace(/\\%/g, "%").replace(/\\\\(\[[^\]]*\])?/g, " ").replace(/\\[a-zA-Z]+\*?/g, " ").replace(/[{}$~]/g, " ");
+}
+var ID_COLUMN = /^\s*(#|id|no\.?|nr\.?|row|item)\s*$/i;
+var REFERENCE = /\b(rows?|tables?|figs?\.?|figures?|sections?|sec\.|appendix|eqs?\.|equations?|lines?|\u00A7)\s*$/i;
+function numbersIn(text, options = {}) {
+  const tex = options.tex ?? false;
+  const out = [];
+  let fenced = false;
+  let header = [];
+  let previous = [];
+  let rows = 0;
+  let prose = [];
+  const flush = () => {
+    let sentence = [];
+    let said = "";
+    const close = () => {
+      const words = wordsOf(said);
+      for (const n of sentence)
+        out.push({ text: n.key, line: n.line, beside: [...new Set(sentence.map((o) => o.key).filter((k) => k !== n.key))], words });
+      sentence = [];
+      said = "";
+    };
+    for (const { line, text: t } of prose) {
+      for (const part of t.split(/(?<=[.!?])\s+/)) {
+        for (const m of part.matchAll(ITEM))
+          if (!REFERENCE.test(part.slice(0, m.index)))
+            sentence.push({ line, key: keyOf(m) });
+        said += ` ${part}`;
+        if (/[.!?]\s*$/.test(part))
+          close();
+      }
+    }
+    close();
+    prose = [];
+  };
+  const tableRow = (cells, at, whole) => {
+    previous = cells;
+    rows++;
+    const row = cells.flatMap((cell, c) => ID_COLUMN.test(header[c] ?? "") ? [] : [...cell.matchAll(ITEM)].filter((m) => !REFERENCE.test(cell.slice(0, m.index))).map((m) => ({ key: keyOf(m), column: c })));
+    const words = wordsOf(whole);
+    for (const { key, column } of row)
+      out.push({ text: key, line: at, beside: [...new Set(row.map((r) => r.key).filter((k) => k !== key))], words: [...new Set([...words, ...wordsOf(header[column] ?? "")])] });
+  };
+  const endTable = () => {
+    header = [];
+    previous = [];
+    rows = 0;
+  };
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const code = tex ? /\\(begin|end)\{(verbatim|lstlisting|minted|comment)\}/.exec(raw) : /^\s*(```|~~~)/.exec(raw);
+    if (code) {
+      flush();
+      fenced = tex ? code[1] === "begin" : !fenced;
+      return;
+    }
+    if (fenced)
+      return;
+    if (tex) {
+      if (/\\(midrule|hline)\b/.test(raw) && !/(?<!\\)&/.test(raw)) {
+        flush();
+        if (/midrule/.test(raw) || rows === 1)
+          header = previous;
+        return;
+      }
+      if (/\\(begin|end)\{(tabular|table|tabularx|longtable)\*?\}/.test(raw)) {
+        flush();
+        endTable();
+        return;
+      }
+      if (/(?<!\\)&/.test(raw)) {
+        flush();
+        const cells = raw.split(/(?<!\\)&/).map((c) => strip(unTex(c)));
+        tableRow(cells, i + 1, cells.join(" "));
+        return;
+      }
+      const line = strip(unTex(raw));
+      if (!line.trim() || /^\s*\\(section|subsection|subsubsection|paragraph|chapter|item)\b/.test(raw))
+        flush();
+      if (line.trim())
+        prose.push({ line: i + 1, text: line });
+      return;
+    }
+    const line = strip(raw);
+    if (/^\s*\|/.test(raw)) {
+      flush();
+      if (/^\s*\|[\s:|-]+\|\s*$/.test(raw)) {
+        header = previous;
+        return;
+      }
+      tableRow(line.split("|").slice(1, -1), i + 1, line);
+      return;
+    }
+    endTable();
+    if (!line.trim() || /^\s*(#|[-*+]\s|\d+\.\s)/.test(raw))
+      flush();
+    if (line.trim())
+      prose.push({ line: i + 1, text: line });
+  });
+  flush();
+  return out;
+}
+var telling = (text) => /\d\s*\/\s*\d/.test(text) || significant(text) >= 3;
+function checkDocument(repo, path) {
+  const text = readFileSync17(path, "utf8");
+  const before = statSync10(path).mtimeMs;
+  const flat = (t) => t.replace(/\s+/g, " ").trim();
+  const page = flat(text);
+  const scope = { results: listResults(repo) };
+  const all = scope.results;
+  const verdict = ({ text: number, beside, words }) => {
+    const w = whence(repo, number, 40, scope, { beside, words, before });
+    const own = (o) => {
+      const l = flat(o.line);
+      return l.length >= 12 && page.includes(l);
+    };
+    w.outputs = w.outputs.filter((o) => !own(o));
+    w.reads = w.reads.filter((o) => !own(o));
+    const by = (o) => ({ command: o.command, step: mainStep(o.command), ts: o.ts });
+    const result = w.results[0];
+    if (result) {
+      const check = checkResult(repo, result, all);
+      return { state: check.stale ? "changed" : "found", reason: check.stale ? "A recorded result, and what it depends on changed since" : "A recorded result", where: `${result.name} (${result.status})` };
+    }
+    const file = w.files[0];
+    if (file)
+      return { state: file.changed ? "changed" : "found", reason: file.changed ? "In a file a command wrote, and the file changed since" : "In a file a command wrote", where: `${file.path} \u2192 ${file.key}`, by: by(file), evidence: `${file.key} = ${file.found}` };
+    const best = (list) => [...list].sort((a, b) => b.score - a.score || a.ts.localeCompare(b.ts));
+    const inLine = best(w.outputs.filter((o) => o.beside));
+    const inRun = best(w.outputs.filter((o) => !o.beside && o.same_run));
+    const lead = inLine[0] ?? inRun[0];
+    const differs = (o) => o.command !== lead.command && flat(o.line) !== flat(lead.line);
+    const rival = (inLine[0] ? inLine : inRun).find((o) => differs(o) && o.score === lead.score);
+    if (lead && !rival)
+      return { state: "found", reason: "Printed with the numbers beside it", by: by(lead), evidence: lead.line };
+    if (lead)
+      return { state: "unsure", reason: "More than one run printed it with the numbers beside it", by: by(lead), evidence: lead.line };
+    const printed = best(w.outputs)[0] ?? w.outputs[0];
+    const commands = new Set([...w.outputs, ...w.reads.filter((r) => r.again)].map((o) => o.command)).size;
+    if (printed && !beside.length && telling(number) && commands === 1 && (printed.score ?? 0) >= 1)
+      return { state: "found", reason: "Printed", by: by(printed), evidence: printed.line };
+    const inFiles = [...w.elsewhere].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const other = inFiles[0];
+    const commit = other?.commit ? `, in commit ${other.commit}` : "";
+    if (other && inFiles.length === 1 && (other.score ?? 0) >= 1)
+      return { state: "found", reason: "In a data file", where: `${other.path} \u2192 ${other.key}${commit}`, evidence: `${other.key} = ${other.found}` };
+    if (printed) {
+      const reason = beside.length ? "Printed, but not with the numbers beside it" : commands > 1 ? `Printed by ${commands} different commands` : telling(number) ? "Printed, in a line that shares no words with its sentence" : "Printed, but too short to tell apart";
+      return { state: "unsure", reason, by: by(printed), evidence: printed.line };
+    }
+    if (other)
+      return { state: "unsure", reason: inFiles.length > 1 ? `In ${inFiles.length} data files` : "In a data file, under a name unlike the text around it", where: `${other.path} \u2192 ${other.key}${commit}`, evidence: `${other.key} = ${other.found}` };
+    const reread = w.reads[0];
+    if (reread)
+      return { state: "unsure", reason: "Only read back from a file", by: by(reread), evidence: reread.line };
+    return { state: "missing", reason: "No command here printed it, and no data file holds it" };
+  };
+  const rows = new Map;
+  const asked = new Map;
+  for (const n of numbersIn(text, { tex: /\.(tex|ltx)$/i.test(path) })) {
+    const question = `${n.text}|${[...n.beside].sort().join(",")}|${n.words.join(",")}`;
+    const answer = asked.get(question) ?? verdict(n);
+    asked.set(question, answer);
+    const key = `${n.text}|${answer.state}|${describeRow({ text: n.text, lines: [], ...answer })}|${answer.evidence ?? ""}`;
+    const row = rows.get(key) ?? { text: n.text, lines: [], ...answer };
+    if (!row.lines.includes(n.line))
+      row.lines.push(n.line);
+    rows.set(key, row);
+  }
+  return [...rows.values()];
+}
+
+// protocol/uninstall.ts
+import { existsSync as existsSync16, readdirSync as readdirSync8, readFileSync as readFileSync19, rmSync as rmSync8, writeFileSync as writeFileSync12 } from "fs";
+import { basename as basename8, join as join20, resolve as resolve9 } from "path";
+
+// protocol/tools.ts
+import { existsSync as existsSync15, readdirSync as readdirSync7, readFileSync as readFileSync18 } from "fs";
+import { homedir as homedir9 } from "os";
+import { basename as basename7, join as join19, resolve as resolve8 } from "path";
 var obj = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : {};
 var list = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : typeof v === "string" ? [v] : [];
 var json = (file) => obj(readJson(file, {}));
 var tilde = (text) => {
-  const home = homedir8();
+  const home = homedir9();
   return home && home !== "/" ? text.split(`${home}/`).join("~/").split(`${home}\\`).join("~\\") : text;
 };
 var SCRIPT = /\.(?:[cm]?js|ts|sh|bash|py|rb|pl|ps1)$/;
 function howRuns(words) {
   const clean = words.map((w) => w.replace(/["']/g, "")).filter(Boolean);
   const what = clean.slice(1).find((w) => /^@[\w.-]+\/[\w.-]+(@[\w.^~-]+)?$/.test(w) || SCRIPT.test(w) || /^[\w.-]*mcp[\w.-]*(@[\w.^~-]+)?$/i.test(w));
-  return scrub([basename5(clean[0] ?? ""), what && (what.startsWith("@") ? what : basename5(what))].filter(Boolean).join(" "));
+  return scrub([basename7(clean[0] ?? ""), what && (what.startsWith("@") ? what : basename7(what))].filter(Boolean).join(" "));
 }
 function server(entry) {
   const names = (...values) => [...new Set(values.flatMap((v) => Array.isArray(v) ? list(v) : Object.keys(obj(v))))].sort();
@@ -5655,7 +6356,7 @@ function server(entry) {
 function hookName(command) {
   const words = command.split(/\s+/).map((w) => w.replace(/["']/g, "")).filter((w) => w && !w.includes("="));
   const script = words.find((w) => SCRIPT.test(w));
-  return scrub(basename5(script ?? words[0] ?? "")) || "hook";
+  return scrub(basename7(script ?? words[0] ?? "")) || "hook";
 }
 var ANVC_SERVER = /protocol\/mcp\.ts/;
 function servers(map, where, file, state, anvc = false) {
@@ -5700,30 +6401,30 @@ function hooks(map, where, file, state, anvc = false) {
 function skills(dir, where, state, anvc = false) {
   let names = [];
   try {
-    names = readdirSync7(dir).filter((n) => existsSync14(join17(dir, n, "SKILL.md"))).sort();
+    names = readdirSync7(dir).filter((n) => existsSync15(join19(dir, n, "SKILL.md"))).sort();
   } catch {
     return [];
   }
-  return names.map((name) => ({ kind: "skill", name, where, state: state(name), anvc, file: tilde(join17(dir, name, "SKILL.md")) }));
+  return names.map((name) => ({ kind: "skill", name, where, state: state(name), anvc, file: tilde(join19(dir, name, "SKILL.md")) }));
 }
 function commands(paths, where, state, anvc) {
   const files = paths.flatMap((p) => {
     try {
-      return p.endsWith(".md") ? existsSync14(p) ? [p] : [] : readdirSync7(p).filter((n) => n.endsWith(".md")).map((n) => join17(p, n));
+      return p.endsWith(".md") ? existsSync15(p) ? [p] : [] : readdirSync7(p).filter((n) => n.endsWith(".md")).map((n) => join19(p, n));
     } catch {
       return [];
     }
   });
-  return files.map((f) => ({ kind: "command", name: basename5(f, ".md"), where, state, anvc, file: tilde(f) }));
+  return files.map((f) => ({ kind: "command", name: basename7(f, ".md"), where, state, anvc, file: tilde(f) }));
 }
 function claudeConfig() {
-  const legacy = join17(claudeDir(), ".config.json");
-  const file = existsSync14(legacy) ? legacy : join17(process.env.CLAUDE_CONFIG_DIR || homedir8(), ".claude.json");
+  const legacy = join19(claudeDir(), ".config.json");
+  const file = existsSync15(legacy) ? legacy : join19(process.env.CLAUDE_CONFIG_DIR || homedir9(), ".claude.json");
   return { file, data: json(file) };
 }
 function claudeCode(repo, root) {
   const dir = claudeDir();
-  const layers = [join17(dir, "settings.json"), ...repo ? [join17(repo, ".claude/settings.json"), join17(repo, ".claude/settings.local.json")] : []].map(json);
+  const layers = [join19(dir, "settings.json"), ...repo ? [join19(repo, ".claude/settings.json"), join19(repo, ".claude/settings.local.json")] : []].map(json);
   const merged = (key) => Object.assign({}, ...layers.map((l) => obj(l[key])));
   const last = (key) => layers.map((l) => l[key]).filter((v) => v !== undefined).at(-1);
   const config = claudeConfig();
@@ -5742,46 +6443,46 @@ function claudeCode(repo, root) {
   const out = [
     ...servers(config.data.mcpServers, "every project", config.file, userOn),
     ...servers(project.mcpServers, "this project", config.file, userOn),
-    ...repo ? servers(json(join17(repo, ".mcp.json")).mcpServers, "this project", join17(repo, ".mcp.json"), (name) => disabled.has(name) || refused.has(name) ? "off" : approved.has(name) || everyMcpjson ? "on" : "unknown") : [],
-    ...hooks(layers[0].hooks, "every project", join17(dir, "settings.json"), () => hooksOff ? "off" : "on"),
-    ...repo ? ["settings.json", "settings.local.json"].flatMap((name, i) => hooks(layers[i + 1].hooks, "this project", join17(repo, ".claude", name), () => hooksOff ? "off" : "on")) : [],
-    ...skills(join17(dir, "skills"), "every project", (n) => skillState(n)),
-    ...repo ? skills(join17(repo, ".claude/skills"), "this project", (n) => skillState(n)) : []
+    ...repo ? servers(json(join19(repo, ".mcp.json")).mcpServers, "this project", join19(repo, ".mcp.json"), (name) => disabled.has(name) || refused.has(name) ? "off" : approved.has(name) || everyMcpjson ? "on" : "unknown") : [],
+    ...hooks(layers[0].hooks, "every project", join19(dir, "settings.json"), () => hooksOff ? "off" : "on"),
+    ...repo ? ["settings.json", "settings.local.json"].flatMap((name, i) => hooks(layers[i + 1].hooks, "this project", join19(repo, ".claude", name), () => hooksOff ? "off" : "on")) : [],
+    ...skills(join19(dir, "skills"), "every project", (n) => skillState(n)),
+    ...repo ? skills(join19(repo, ".claude/skills"), "this project", (n) => skillState(n)) : []
   ];
   const enabled = merged("enabledPlugins");
-  const installed = obj(json(join17(dir, "plugins/installed_plugins.json")).plugins);
+  const installed = obj(json(join19(dir, "plugins/installed_plugins.json")).plugins);
   for (const [key, installs] of Object.entries(installed)) {
     const here = (Array.isArray(installs) ? installs : []).map(obj).filter((i) => i.scope === "user" || thisProject(i.projectPath));
     const install = here.at(-1);
     if (!install || typeof install.installPath !== "string")
       continue;
     const path = install.installPath;
-    const manifest = json(join17(path, ".claude-plugin/plugin.json"));
+    const manifest = json(join19(path, ".claude-plugin/plugin.json"));
     const name = typeof manifest.name === "string" ? manifest.name : key.split("@")[0];
     const state = enabled[key] === true ? "on" : enabled[key] === false ? "off" : "unknown";
     const anvc = name === "anvc";
-    out.push({ kind: "plugin", name, where: here.some((i) => i.scope === "user") ? "every project" : "this project", state, anvc, file: tilde(join17(path, ".claude-plugin/plugin.json")) });
-    const within = (p) => resolve7(path, p);
-    const mcp = typeof manifest.mcpServers === "string" || Array.isArray(manifest.mcpServers) ? list(manifest.mcpServers).map((f) => [within(f), json(within(f))]) : manifest.mcpServers ? [[join17(path, ".claude-plugin/plugin.json"), { mcpServers: manifest.mcpServers }]] : [[join17(path, ".mcp.json"), json(join17(path, ".mcp.json"))]];
+    out.push({ kind: "plugin", name, where: here.some((i) => i.scope === "user") ? "every project" : "this project", state, anvc, file: tilde(join19(path, ".claude-plugin/plugin.json")) });
+    const within = (p) => resolve8(path, p);
+    const mcp = typeof manifest.mcpServers === "string" || Array.isArray(manifest.mcpServers) ? list(manifest.mcpServers).map((f) => [within(f), json(within(f))]) : manifest.mcpServers ? [[join19(path, ".claude-plugin/plugin.json"), { mcpServers: manifest.mcpServers }]] : [[join19(path, ".mcp.json"), json(join19(path, ".mcp.json"))]];
     for (const [file, data] of mcp)
       out.push(...servers(data.mcpServers ?? data, name, file, (s) => state === "on" && disabled.has(s) ? "off" : state, anvc));
-    const hookFiles = typeof manifest.hooks === "string" || Array.isArray(manifest.hooks) ? list(manifest.hooks).map((f) => [within(f), json(within(f))]) : manifest.hooks ? [[join17(path, ".claude-plugin/plugin.json"), obj(manifest.hooks)]] : [[join17(path, "hooks/hooks.json"), json(join17(path, "hooks/hooks.json"))]];
+    const hookFiles = typeof manifest.hooks === "string" || Array.isArray(manifest.hooks) ? list(manifest.hooks).map((f) => [within(f), json(within(f))]) : manifest.hooks ? [[join19(path, ".claude-plugin/plugin.json"), obj(manifest.hooks)]] : [[join19(path, "hooks/hooks.json"), json(join19(path, "hooks/hooks.json"))]];
     for (const [file, data] of hookFiles)
       out.push(...hooks(data.hooks ?? data, name, file, () => hooksOff ? "off" : state, anvc));
-    for (const folder of [join17(path, "skills"), ...list(manifest.skills).map(within)]) {
+    for (const folder of [join19(path, "skills"), ...list(manifest.skills).map(within)]) {
       out.push(...skills(folder, name, (s) => state === "on" ? skillState(`${name}:${s}`, s) : state, anvc));
     }
-    out.push(...commands([join17(path, "commands"), ...list(manifest.commands).map(within)], name, state, anvc));
+    out.push(...commands([join19(path, "commands"), ...list(manifest.commands).map(within)], name, state, anvc));
   }
   return out;
 }
 var snake = (event) => event.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 function codex(repo) {
   const dir = codexDir();
-  const file = join17(dir, "config.toml");
+  const file = join19(dir, "config.toml");
   let config = {};
   try {
-    config = obj(Bun.TOML.parse(readFileSync16(file, "utf8")));
+    config = obj(Bun.TOML.parse(readFileSync18(file, "utf8")));
   } catch {}
   const { state: trust = {}, ...inline } = obj(config.hooks);
   const hookState = (path) => (event, g, i) => {
@@ -5792,15 +6493,15 @@ function codex(repo) {
   return [
     ...servers(config.mcp_servers, "every project", file, (_, entry) => entry.enabled === false ? "off" : "on"),
     ...hooks(inline, "every project", file, hookState(file)),
-    ...hooksFile(join17(dir, "hooks.json"), "every project"),
-    ...repo ? hooksFile(join17(repo, ".codex/hooks.json"), "this project") : []
+    ...hooksFile(join19(dir, "hooks.json"), "every project"),
+    ...repo ? hooksFile(join19(repo, ".codex/hooks.json"), "this project") : []
   ];
 }
 function cursor(repo) {
-  const dirs = [[cursorDir(), "every project"], ...repo ? [[join17(repo, ".cursor"), "this project"]] : []];
+  const dirs = [[cursorDir(), "every project"], ...repo ? [[join19(repo, ".cursor"), "this project"]] : []];
   return dirs.flatMap(([dir, where]) => [
-    ...servers(json(join17(dir, "mcp.json")).mcpServers, where, join17(dir, "mcp.json"), () => "unknown"),
-    ...hooks(json(join17(dir, "hooks.json")).hooks, where, join17(dir, "hooks.json"), () => "on")
+    ...servers(json(join19(dir, "mcp.json")).mcpServers, where, join19(dir, "mcp.json"), () => "unknown"),
+    ...hooks(json(join19(dir, "hooks.json")).hooks, where, join19(dir, "hooks.json"), () => "on")
   ]);
 }
 var KIND_ORDER = ["mcp", "plugin", "skill", "command", "hook"];
@@ -5962,8 +6663,8 @@ function uninstall(given, opts = {}) {
   const kept = [];
   const tracked = (rel) => gitOrNull(repo, ["ls-files", "--error-unmatch", rel]) !== null;
   const gone = [];
-  const exclude = resolve8(repo, git(repo, ["rev-parse", "--git-path", "info/exclude"]));
-  const excluded = new Set(existsSync15(exclude) ? readFileSync17(exclude, "utf8").split(`
+  const exclude = resolve9(repo, git(repo, ["rev-parse", "--git-path", "info/exclude"]));
+  const excluded = new Set(existsSync16(exclude) ? readFileSync19(exclude, "utf8").split(`
 `).map((l) => l.trim()) : []);
   const leftover = (rel, data) => Object.keys(data).every((k) => k === "version" || k === "mcpServers" && !Object.keys(data[k]).length) && excluded.has(rel) && !tracked(rel);
   setFolder(repoRoot(repo) ?? repo, false);
@@ -5976,7 +6677,7 @@ function uninstall(given, opts = {}) {
     if (gitOrNull(repo, ["config", "--unset-all", key]) !== null)
       removed.push(`git config ${key}`);
   for (const rel of HOOK_FILES) {
-    const file = resolve8(repo, rel);
+    const file = resolve9(repo, rel);
     const data = readJson(file, null);
     if (!data)
       continue;
@@ -5984,20 +6685,20 @@ function uninstall(given, opts = {}) {
     const plugin = rel === ".claude/settings.json" && dropPlugin(data);
     if (!hooks && !plugin) {
       if (leftover(rel, data)) {
-        rmSync7(file);
+        rmSync8(file);
         gone.push(rel);
       }
       continue;
     }
     const empty = Object.keys(data).every((k) => k === "version");
     if (empty && !tracked(rel)) {
-      rmSync7(file);
+      rmSync8(file);
       gone.push(rel);
     } else
       writeJson(file, data);
     removed.push(`${hooks ? plural(hooks, "hook") : "the plugin"} from ${rel}${tracked(rel) ? " (the project commits this file; commit the change)" : ""}`);
   }
-  const mcp = resolve8(repo, ".cursor/mcp.json");
+  const mcp = resolve9(repo, ".cursor/mcp.json");
   const servers = readJson(mcp, null);
   if (servers) {
     const had = dropServer(servers);
@@ -6005,43 +6706,43 @@ function uninstall(given, opts = {}) {
     if (!list || !Object.keys(list).length)
       delete servers.mcpServers;
     if (!Object.keys(servers).length && (had || excluded.has(".cursor/mcp.json")) && !tracked(".cursor/mcp.json")) {
-      rmSync7(mcp);
+      rmSync8(mcp);
       gone.push(".cursor/mcp.json");
     } else if (had)
       writeJson(mcp, servers);
     if (had)
       removed.push("the MCP server from .cursor/mcp.json");
   }
-  if (gone.length && existsSync15(exclude)) {
-    const lines = readFileSync17(exclude, "utf8").split(`
+  if (gone.length && existsSync16(exclude)) {
+    const lines = readFileSync19(exclude, "utf8").split(`
 `);
     const left = lines.filter((l) => !gone.includes(l.trim()));
     if (left.length !== lines.length)
-      writeFileSync11(exclude, left.join(`
+      writeFileSync12(exclude, left.join(`
 `));
   }
   if (gone.length)
     removed.push(`deleted ${gone.join(", ")}, which held nothing but ANVC's`);
   for (const dir of [".claude", ".codex", ".cursor"]) {
-    const path = resolve8(repo, dir);
+    const path = resolve9(repo, dir);
     try {
-      if (existsSync15(path) && !readdirSync8(path).length)
-        rmSync7(path, { recursive: true });
+      if (existsSync16(path) && !readdirSync8(path).length)
+        rmSync8(path, { recursive: true });
     } catch {}
   }
   const prePush = removePrePush(repo);
   if (prePush)
     removed.push(prePush);
-  const settings = resolve8(repo, git(repo, ["rev-parse", "--git-common-dir"]), "anvc");
-  if (existsSync15(settings)) {
-    rmSync7(settings, { recursive: true, force: true });
+  const settings = resolve9(repo, git(repo, ["rev-parse", "--git-common-dir"]), "anvc");
+  if (existsSync16(settings)) {
+    rmSync8(settings, { recursive: true, force: true });
     removed.push("this project's ANVC settings (.git/anvc)");
   }
   const instructions = instructionsIn(repo);
   if (instructions && opts.instructions)
     removed.push(`the ANVC lines in ${removeInstructions(repo)} (commit the change)`);
   else if (instructions)
-    kept.push(`the ANVC lines in ${basename6(instructions)}; --instructions removes them`);
+    kept.push(`the ANVC lines in ${basename8(instructions)}; --instructions removes them`);
   const refs = recordRefs(repo);
   if (refs.length && opts.records) {
     deleteRefs(repo, refs);
@@ -6071,21 +6772,21 @@ function uninstallEverywhere(opts = {}) {
   };
   const server = (data) => dropServer(data) && "the MCP server";
   let plugin = false;
-  edit(join18(claudeDir(), "settings.json"), (data) => {
+  edit(join20(claudeDir(), "settings.json"), (data) => {
     plugin = dropPlugin(data);
     return [plugin && "the plugin", hooks(data)];
   });
   edit(claudeConfig().file, (data) => [server(data)]);
-  edit(join18(codexDir(), "hooks.json"), (data) => [hooks(data)]);
-  edit(join18(cursorDir(), "hooks.json"), (data) => [hooks(data)]);
-  edit(join18(cursorDir(), "mcp.json"), (data) => [server(data)]);
-  const toml = join18(codexDir(), "config.toml");
-  const next = existsSync15(toml) ? withoutCodexServer(readFileSync17(toml, "utf8")) : undefined;
+  edit(join20(codexDir(), "hooks.json"), (data) => [hooks(data)]);
+  edit(join20(cursorDir(), "hooks.json"), (data) => [hooks(data)]);
+  edit(join20(cursorDir(), "mcp.json"), (data) => [server(data)]);
+  const toml = join20(codexDir(), "config.toml");
+  const next = existsSync16(toml) ? withoutCodexServer(readFileSync19(toml, "utf8")) : undefined;
   if (next === null)
     kept.push(`the MCP server in ${tilde(toml)}; codex mcp remove anvc takes it out`);
   else if (next !== undefined) {
     if (!opts.dry)
-      writeFileSync11(toml, next);
+      writeFileSync12(toml, next);
     removed.push(`the MCP server from ${tilde(toml)}`);
   }
   if (!opts.dry)
@@ -6136,15 +6837,15 @@ function withoutCodexServer(text) {
 }
 
 // protocol/remove.ts
-import { spawnSync as spawnSync3 } from "child_process";
+import { spawnSync as spawnSync4 } from "child_process";
 import { createHash as createHash5 } from "crypto";
-import { chmodSync as chmodSync3, existsSync as existsSync16, mkdirSync as mkdirSync14, readdirSync as readdirSync9, readFileSync as readFileSync18, rmSync as rmSync8, statSync as statSync9, writeFileSync as writeFileSync12 } from "fs";
-import { basename as basename7, dirname as dirname9, join as join19, resolve as resolve9 } from "path";
+import { chmodSync as chmodSync3, existsSync as existsSync17, mkdirSync as mkdirSync14, readdirSync as readdirSync9, readFileSync as readFileSync20, rmSync as rmSync9, statSync as statSync11, writeFileSync as writeFileSync13 } from "fs";
+import { basename as basename9, dirname as dirname9, join as join21, resolve as resolve10 } from "path";
 var ANVC_REF = /^refs\/(remotes\/[^/]+\/)?anvc(-[a-z]+)?\//;
 var RECORD_REF = /^refs\/(remotes\/[^/]+\/)?anvc(-private)?\//;
 var REMOTE_REF = /^refs\/anvc(-[a-z]+)?\//;
 var SETTINGS_REF = "refs/anvc-backup/";
-var backupDir = () => join19(stateHome(), "backups");
+var backupDir = () => join21(stateHome(), "backups");
 function counted(refs) {
   const kept = refs.filter((r) => RECORD_REF.test(r.ref));
   const records = new Set(kept.map((r) => r.oid)).size;
@@ -6160,13 +6861,13 @@ function project(given) {
   const first = gitOrNull(top, ["rev-list", "--max-parents=0", "HEAD"])?.split(`
 `).filter(Boolean).sort()[0];
   const id = first ?? createHash5("sha1").update(root).digest("hex");
-  const settings = join19(git(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), "anvc");
+  const settings = join21(git(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), "anvc");
   return { top, root, id, settings };
 }
 var said = (error) => error instanceof Error ? error.message : String(error);
 var anvcRefs = (repo) => readRefs(repo, "refs/").filter((r) => ANVC_REF.test(r.ref) && !r.ref.startsWith(SETTINGS_REF));
 function remoteGit(repo, args) {
-  const r = spawnSync3("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 120000, windowsHide: true });
+  const r = spawnSync4("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 120000, windowsHide: true });
   if (r.status !== 0) {
     const said = (r.stderr ?? "").trim().split(`
 `).filter(Boolean).at(-1);
@@ -6185,10 +6886,10 @@ function remoteRefs(repo, remote) {
   return refLines(remoteGit(repo, ["ls-remote", "--refs", remote])).filter((r) => REMOTE_REF.test(r.ref));
 }
 function readSettings(dir) {
-  if (!existsSync16(dir))
+  if (!existsSync17(dir))
     return {};
-  const files = readdirSync9(dir, { recursive: true }).filter((f) => statSync9(join19(dir, f)).isFile());
-  return Object.fromEntries(files.map((f) => [f, readFileSync18(join19(dir, f), "utf8")]));
+  const files = readdirSync9(dir, { recursive: true }).filter((f) => statSync11(join21(dir, f)).isFile());
+  return Object.fromEntries(files.map((f) => [f, readFileSync20(join21(dir, f), "utf8")]));
 }
 function setupHere(p) {
   const matchers = [isRepo(p.root), isRepo(p.top)];
@@ -6217,10 +6918,10 @@ function backup(given, removedFrom = []) {
   mkdirSync14(dir, { recursive: true, mode: 448 });
   chmodSync3(dir, 448);
   const stamp = new Date(meta.created).toLocaleString("sv-SE").replace(" ", "-").replaceAll(":", "");
-  const name = basename7(p.root).replace(/[^A-Za-z0-9._-]/g, "-");
-  let file = join19(dir, `${name}-${stamp}.bundle`);
-  for (let i = 2;existsSync16(file); i++)
-    file = join19(dir, `${name}-${stamp}-${i}.bundle`);
+  const name = basename9(p.root).replace(/[^A-Za-z0-9._-]/g, "-");
+  let file = join21(dir, `${name}-${stamp}.bundle`);
+  for (let i = 2;existsSync17(file); i++)
+    file = join21(dir, `${name}-${stamp}-${i}.bundle`);
   const settingsRef = `${SETTINGS_REF}${p.id}`;
   git(p.top, ["update-ref", settingsRef, git(p.top, ["hash-object", "-w", "--stdin"], { input: JSON.stringify(meta) })]);
   try {
@@ -6234,7 +6935,7 @@ function backup(given, removedFrom = []) {
     if (missing.length || !heads.has(settingsRef))
       throw new Error(`the backup doesn't hold ${missing[0]?.ref ?? "the settings"}`);
   } catch (error) {
-    rmSync8(file, { force: true });
+    rmSync9(file, { force: true });
     throw error;
   } finally {
     gitOrNull(p.top, ["update-ref", "-d", settingsRef]);
@@ -6260,7 +6961,7 @@ function setupChanges(p) {
   const s = setupHere(p);
   const hooked = [".claude/settings.local.json", ".claude/settings.json", ".codex/hooks.json", ".cursor/hooks.json", ".cursor/mcp.json"].filter((rel) => {
     try {
-      return /emitters\/claude-code\/|"anvc(@anvc)?"\s*:/.test(readFileSync18(join19(p.top, rel), "utf8"));
+      return /emitters\/claude-code\/|"anvc(@anvc)?"\s*:/.test(readFileSync20(join21(p.top, rel), "utf8"));
     } catch {
       return false;
     }
@@ -6270,7 +6971,7 @@ function setupChanges(p) {
     ...s.remotes.map((r) => `Stop records going with git push and fetch on ${r}`),
     ...hooked.map((rel) => `Take ANVC's entries out of ${rel}`),
     ...s.prePush ? ["Take out the pre-push check"] : [],
-    ...existsSync16(p.settings) ? ["Delete this project's ANVC settings"] : []
+    ...existsSync17(p.settings) ? ["Delete this project's ANVC settings"] : []
   ];
 }
 function remove(given, opts = {}) {
@@ -6327,7 +7028,7 @@ function backups(given) {
     return [];
   }
   return names.flatMap((name) => {
-    const file = join19(dir, name);
+    const file = join21(dir, name);
     let heads;
     try {
       heads = bundleHeads(p.top, file);
@@ -6336,13 +7037,13 @@ function backups(given) {
     }
     if (!heads.some((h) => h.ref === `${SETTINGS_REF}${p.id}`))
       return [];
-    return [{ file, name, created: statSync9(file).mtime.toISOString(), says: counted(heads.filter((h) => !h.ref.startsWith(SETTINGS_REF))) }];
+    return [{ file, name, created: statSync11(file).mtime.toISOString(), says: counted(heads.filter((h) => !h.ref.startsWith(SETTINGS_REF))) }];
   }).sort((a, b) => b.created.localeCompare(a.created));
 }
 function restore(given, file, opts = {}) {
   const p = project(given);
-  const path = existsSync16(file) ? resolve9(file) : join19(backupDir(), file);
-  if (!existsSync16(path))
+  const path = existsSync17(file) ? resolve10(file) : join21(backupDir(), file);
+  if (!existsSync17(path))
     throw new Error(`there's no backup at ${file}`);
   git(p.top, ["bundle", "verify", "--quiet", path]);
   const heads = bundleHeads(p.top, path);
@@ -6362,14 +7063,14 @@ function restore(given, file, opts = {}) {
 `).join("") });
   const settings = [], settingsKept = [];
   for (const [rel, text] of Object.entries(meta.settings ?? {})) {
-    const target = resolve9(p.settings, rel);
+    const target = resolve10(p.settings, rel);
     if (below(p.settings, target) === null)
       continue;
-    if (!existsSync16(target)) {
+    if (!existsSync17(target)) {
       mkdirSync14(dirname9(target), { recursive: true });
-      writeFileSync12(target, text);
+      writeFileSync13(target, text);
       settings.push(rel);
-    } else if (readFileSync18(target, "utf8") !== text)
+    } else if (readFileSync20(target, "utf8") !== text)
       settingsKept.push(rel);
   }
   const pushBack = (meta.removedFrom ?? []).map((remote) => {
@@ -6412,10 +7113,10 @@ function setUpAgain(p, s) {
     }
   }
   if (s.agents.length) {
-    if (!existsSync16(SETUP))
+    if (!existsSync17(SETUP))
       done.push(`hooks for ${s.agents.join(", ")} weren't put back; run setup for them`);
     else {
-      const run = spawnSync3("bun", [SETUP, "--repo", p.top, "--agent", s.agents.join(","), "--no-remote"], { encoding: "utf8", windowsHide: true });
+      const run = spawnSync4("bun", [SETUP, "--repo", p.top, "--agent", s.agents.join(","), "--no-remote"], { encoding: "utf8", windowsHide: true });
       done.push(run.status === 0 ? `setup ran again for ${s.agents.join(", ")}` : `setup for ${s.agents.join(", ")} failed: ${(run.stderr || run.stdout).trim().split(`
 `).at(-1)}`);
     }
@@ -6533,8 +7234,8 @@ ${done.pushBack.map((c) => `  ${c}`).join(`
 }
 
 // protocol/assist.ts
-import { rmSync as rmSync9 } from "fs";
-import { join as join20 } from "path";
+import { rmSync as rmSync10 } from "fs";
+import { join as join22 } from "path";
 var MOMENTS = {
   briefing: { label: "Session start", what: "Past dead ends, what works and what the last session left, when a session starts or its context is compacted." },
   goals: { label: "Goals", what: "The project's goals and which are done, when a session starts or its context is compacted." },
@@ -6546,7 +7247,7 @@ var MOMENTS = {
   autosave: { label: "Save from the log", what: "Saves what your agent didn't record, privately, marked as having no reason." },
   checks: { label: "Run checks", what: "Runs a dead end's test command before showing it, to see if it still fails." },
   notices: { label: "Notes to you", what: "A line in your terminal after a session saying what ANVC did." },
-  rules: { label: "Writing rules", what: "The project's writing rules: a list when a session starts, and a rule set's text before your agent writes what it covers." },
+  rules: { label: "Writing rules", what: "A rule set's text before your agent writes what it covers, such as a commit message." },
   tools: { label: "Tool notes", what: "Notes on when to use which tool, at the start of a session and after compaction." },
   status: { label: "Status", what: "What's in progress, done recently and up next, when a session starts or its context is compacted." }
 };
@@ -6555,12 +7256,12 @@ var LEVELS = {
   auto: {
     label: "Automatic",
     what: "Shows your agent past attempts as it works.",
-    moments: every(true)
+    moments: { ...every(true), goals: false }
   },
   start: {
     label: "At the start",
     what: "Briefs your agent when a session starts, then stays quiet.",
-    moments: { ...every(true), prompts: false, failures: false, subagents: false, results: false }
+    moments: { ...every(true), goals: false, prompts: false, failures: false, subagents: false, results: false }
   },
   ask: {
     label: "When asked",
@@ -6569,28 +7270,28 @@ var LEVELS = {
   }
 };
 var DEFAULT_LEVEL = "auto";
-var everywhereFile2 = () => join20(stateHome(), "assist.json");
-var projectFile2 = (repo) => marker(repo, "assist.json");
+var everywhereFile3 = () => join22(stateHome(), "assist.json");
+var projectFile3 = (repo) => marker(repo, "assist.json");
 var read3 = (file) => file ? readJson(file, null) : null;
-function resolve10(saved, from) {
+function resolve11(saved, from) {
   const level = saved.level && Object.hasOwn(LEVELS, saved.level) ? saved.level : DEFAULT_LEVEL;
   return { level, moments: { ...LEVELS[level].moments, ...saved.moments ?? {} }, from };
 }
 function readAssist(repo) {
-  const project = read3(projectFile2(repo));
+  const project = read3(projectFile3(repo));
   if (project)
-    return resolve10(project, "project");
-  const everywhere = read3(everywhereFile2());
+    return resolve11(project, "project");
+  const everywhere = read3(everywhereFile3());
   if (everywhere)
-    return resolve10(everywhere, "everywhere");
-  return resolve10({}, "default");
+    return resolve11(everywhere, "everywhere");
+  return resolve11({}, "default");
 }
 function readEverywhere() {
-  const everywhere = read3(everywhereFile2());
-  return everywhere ? resolve10(everywhere, "everywhere") : resolve10({}, "default");
+  const everywhere = read3(everywhereFile3());
+  return everywhere ? resolve11(everywhere, "everywhere") : resolve11({}, "default");
 }
 function writeAssist(repo, change) {
-  const file = repo ? projectFile2(repo) : everywhereFile2();
+  const file = repo ? projectFile3(repo) : everywhereFile3();
   if (!file)
     throw new Error("not a git repository");
   const current = repo ? readAssist(repo) : readEverywhere();
@@ -6613,9 +7314,9 @@ function writeAssist(repo, change) {
   return repo ? readAssist(repo) : readEverywhere();
 }
 function clearProjectAssist(repo) {
-  const file = projectFile2(repo);
+  const file = projectFile3(repo);
   if (file)
-    rmSync9(file, { force: true });
+    rmSync10(file, { force: true });
 }
 
 // protocol/helped.ts
@@ -6671,8 +7372,8 @@ function helped(db, repo, rows = allActivity(repo)) {
 }
 
 // protocol/options.ts
-import { existsSync as existsSync17 } from "fs";
-import { basename as basename8 } from "path";
+import { existsSync as existsSync18 } from "fs";
+import { basename as basename10 } from "path";
 var ABOUT = "ANVC keeps what coding agents tried and gave up on, and shows it to the next agent.";
 var setupEverywhere = (agents) => ["--global", "--agent", agents.join(",")];
 var setupProject = (repo, agents) => ["--repo", repo, "--agent", agents.join(","), "--no-remote", "--no-instructions"];
@@ -6682,7 +7383,7 @@ function options(root, cwd) {
   const repoFlag = root && samePath(root) !== samePath(cwd) ? ` --repo ${shellWord(root)}` : "";
   const anvc = (args) => `bun ${shellWord(CLI)} ${args}${repoFlag}`;
   const scoped = (args) => ({ set: root ? anvc(args) : null, setEverywhere: anvc(`${args} --everywhere`) });
-  const setup = existsSync17(SETUP) ? (args) => `bun ${shellWord(SETUP)} ${args}` : null;
+  const setup = existsSync18(SETUP) ? (args) => `bun ${shellWord(SETUP)} ${args}` : null;
   const work = root && gitOrNull(root, ["rev-parse", "--show-toplevel"]) ? root : null;
   const settings = [];
   if (setup) {
@@ -6768,6 +7469,18 @@ function options(root, cwd) {
     asks: false,
     choices: Object.entries(DATA_MODES).map(([value, m]) => ({ value, label: m.label, what: m.what, ...scoped(`data ${value}`) }))
   });
+  const absorbing = absorbMode(root);
+  settings.push({
+    key: "absorb",
+    name: "Goals, writing rules and map from your sessions",
+    what: `Whether a small model keeps the goals, sub-goals, writing rules and project map up to date from your sessions, for you to see. It runs outside the session, so it doesn't use your agent's context. ${ABSORB_COST}`,
+    here: root ? absorbing.mode : null,
+    everywhere: absorbMode(null).mode,
+    recommended: DEFAULT_ABSORB_MODE,
+    chosen: absorbing.from !== "default",
+    asks: true,
+    choices: Object.entries(ABSORB_MODES).map(([value, m]) => ({ value, label: m.label, what: m.what, ...scoped(`absorb ${value}`) }))
+  });
   const defaults = readDefaults();
   const policy = root ? readPolicy(root) : null;
   const presetEverywhere = defaults.preset && Object.hasOwn(PRESETS, defaults.preset) ? defaults.preset : null;
@@ -6798,7 +7511,7 @@ function options(root, cwd) {
       }]
     } : {}
   });
-  const localMarked = root !== null && [marker(root), marker(root, "local-off")].some((p) => p !== null && existsSync17(p));
+  const localMarked = root !== null && [marker(root), marker(root, "local-off")].some((p) => p !== null && existsSync18(p));
   settings.push({
     key: "local",
     name: "Local only",
@@ -6843,7 +7556,7 @@ function options(root, cwd) {
     settings.push({
       key: "instructions",
       name: "Instructions",
-      what: `Lines in ${basename8(file)} asking your agent to check past dead ends and record its work. The project commits this file.`,
+      what: `Lines in ${basename10(file)} asking your agent to check past dead ends and record its work. The project commits this file.`,
       here: onOff(on),
       recommended: "off",
       chosen: on,
@@ -6930,338 +7643,17 @@ function template(commands) {
   }).join(" ");
 }
 
-// protocol/rules.ts
-import { readFileSync as readFileSync19, statSync as statSync10 } from "fs";
-import { resolve as resolve11 } from "path";
-var COMMIT = "commit";
-var shape = (x) => ({ name: x.name, applies: x.applies ?? [], source: x.source ?? null, text: x.text ?? null });
-function listRules(repo) {
-  const sets = new Map;
-  const changes = [];
-  for (const [ref, r] of readRecords(repo)) {
-    if (!r.rule)
-      continue;
-    const remote = remoteOf(ref);
-    if (r.rule.of)
-      changes.push({ r, remote });
-    else
-      sets.set(r.id, { id: r.id, ...shape(r.rule), ts: r.ts, by: r.session.agent, remote, tier: tierOf(ref) });
-  }
-  changes.sort((a, b) => a.r.ts.localeCompare(b.r.ts));
-  for (const { r, remote } of changes) {
-    const set = sets.get(r.rule.of);
-    if (!set || remote && !set.remote)
-      continue;
-    if (r.rule.removed)
-      sets.delete(set.id);
-    else
-      Object.assign(set, shape(r.rule), { ts: r.ts, by: r.session.agent });
-  }
-  return [...sets.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
-function covers(set, target) {
-  const path = target.replace(/^\.\//, "");
-  return set.applies.some((a) => path === COMMIT ? a === COMMIT : a !== COMMIT && new Bun.Glob(a).match(path));
-}
-var where = (set) => set.source ? `${set.source.path}${set.source.heading ? ` \u203A ${set.source.heading}` : ""}` : "kept in ANVC";
-var HEADING = /^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
-var bare = (heading) => heading.replace(/^#+\s*/, "").trim().toLowerCase();
-function section(markdown, heading) {
-  if (!heading)
-    return markdown.trim();
-  const want = bare(heading);
-  const out = [];
-  let fence = null;
-  let level = 0;
-  for (const line of markdown.split(/\r?\n/)) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    let h = null;
-    if (marker && (!fence || marker[0] === fence[0] && marker.length >= fence.length))
-      fence = fence ? null : marker;
-    else if (!fence)
-      h = HEADING.exec(line);
-    if (!level) {
-      if (h && bare(h[2]) === want)
-        level = h[1].length;
-      continue;
-    }
-    if (h && h[1].length <= level)
-      break;
-    out.push(line);
-  }
-  return level ? out.join(`
-`).trim() : null;
-}
-function ruleText(repo, set) {
-  if (set.text !== null)
-    return { text: set.text };
-  const { path, heading } = set.source;
-  const real = realInside(repo, path);
-  let body;
-  try {
-    if (!real || statSync10(real).size > 1024 * 1024)
-      throw new Error;
-    body = readFileSync19(real, "utf8");
-  } catch {
-    return { missing: `There's no ${path} in this repository.` };
-  }
-  const text = section(body, heading);
-  return text === null ? { missing: `${path} has no heading "${heading}".` } : { text };
-}
-var isCommit = (command) => /(^|[\s;&|(])git(\s+-[cC]\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+commit\b/.test(command);
-function rulesIndex(repo) {
-  const sets = listRules(repo);
-  if (!sets.length)
-    return null;
-  const head = "anvc: this repository keeps writing rules for these kinds of text. Read a rule set before writing what it covers: " + "open it where it's kept, or call anvc_rules with `for` set to the file's path, or to commit.";
-  const lines = fit2(sets.map((set) => {
-    const got = set.text === null ? ruleText(repo, set) : null;
-    return `- ${set.remote ? `"${set.name}" (from ${set.remote})` : set.name}: ${set.applies.join(", ")} \xB7 ${where(set)}${got && "missing" in got ? ", which isn't there now" : ""}`;
-  }), 1200 - head.length - 59);
-  const left = sets.length - lines.length;
-  return [head, ...lines, ...left ? [`- and ${left} more; anvc_rules lists them all`] : [], ...sets.some((s) => s.remote) ? [QUOTED] : []].join(`
-`);
-}
-function ruleBlock(repo, set, max = 6000) {
-  const head = `${set.remote ? `"${set.name}", fetched from ${set.remote}` : set.name} (${set.applies.join(", ")}; ${where(set)})`;
-  const got = ruleText(repo, set);
-  if ("missing" in got)
-    return `${head}: ${got.missing}`;
-  let text = set.remote ? got.text.split(`
-`).map((l) => `> ${l}`).join(`
-`) : got.text;
-  if (text.length > max) {
-    const cut = text.lastIndexOf(`
-`, max);
-    text = `${text.slice(0, cut > 0 ? cut : max)}
-[Cut at ${max.toLocaleString("en")} characters; the rest is in ${where(set)}.]`;
-  }
-  return `${head}:
-${text}`;
-}
-function rulesFor(repo, target) {
-  const hits = listRules(repo).filter((s) => covers(s, target));
-  if (!hits.length)
-    return null;
-  return [...hits.map((s) => ruleBlock(repo, s)), ...hits.some((s) => s.remote) ? [QUOTED] : []].join(`
-
-`);
-}
-function rulesContext(repo, event, target, seen) {
-  const budget = 7000;
-  if (event === "SessionStart" || event === "SubagentStart") {
-    if (seen.has("@rules"))
-      return null;
-    const index = rulesIndex(repo);
-    if (index)
-      seen.add("@rules");
-    return index;
-  }
-  if (!target)
-    return null;
-  const fresh = listRules(repo).filter((s) => covers(s, target) && !seen.has(`@rule:${s.id}`));
-  if (!fresh.length)
-    return null;
-  const head = target === COMMIT ? "anvc: this repository's writing rules for commit messages are below. If this commit's message doesn't follow them, amend it." : `anvc: this repository's writing rules for ${target} are below.`;
-  const blocks = [];
-  let size = head.length + QUOTED.length;
-  let quoted = false;
-  for (const set of fresh) {
-    const block = ruleBlock(repo, set, Math.max(500, budget - size - 300));
-    if (blocks.length && size + block.length + 2 > budget)
-      break;
-    blocks.push(block);
-    size += block.length + 2;
-    quoted ||= Boolean(set.remote);
-    seen.add(`@rule:${set.id}`);
-  }
-  if (!blocks.length)
-    return null;
-  return [head, ...blocks, ...quoted ? [QUOTED] : []].join(`
-
-`);
-}
-function parseFrom(repo, from) {
-  const at = from.indexOf("#");
-  const file = (at < 0 ? from : from.slice(0, at)).trim();
-  const heading = at < 0 ? "" : from.slice(at + 1).replace(/^#+\s*/, "").trim();
-  if (!file)
-    throw new Error("Name the file its rules are in, or write them out.");
-  const path = below(repo, resolve11(repo, file));
-  if (!path)
-    throw new Error(`${file} isn't inside this repository.`);
-  return { path, ...heading ? { heading } : {} };
-}
-var parseApplies = (applies) => [...new Set((Array.isArray(applies) ? applies : applies.split(",")).map((a) => String(a).trim().replace(/^\.\//, "")).filter(Boolean))];
-function clean(input) {
-  const applies = parseApplies(input.applies);
-  if (!input.name.trim())
-    throw new Error("Give the rule set a name.");
-  if (!applies.length)
-    throw new Error("Say what it applies to: file globs, or commit.");
-  if (input.text === undefined && !input.source?.path)
-    throw new Error("Name the file its rules are in, or write them out.");
-  if (input.source && !RULE_FILE.test(input.source.path))
-    throw new Error(`Rules are read from a Markdown or text file, and ${input.source.path} isn't one.`);
-  return { name: input.name.trim(), applies, ...input.text !== undefined ? { text: input.text.trim() } : { source: input.source } };
-}
-function addRule(repo, input, actor, why) {
-  const rule = clean(input);
-  return appendKept(repo, { rule }, `Writing rules: ${rule.name}`, why, actor, defaultTier(repo)).id;
-}
-function find(repo, id) {
-  const set = listRules(repo).find((s) => s.id === id);
-  if (!set)
-    throw new Error(`no rule set ${id}; anvc rules lists them with their ids`);
-  return set;
-}
-function changeRule(repo, id, change, actor, why) {
-  const set = find(repo, id);
-  const source = change.text !== undefined ? undefined : change.source ?? set.source ?? undefined;
-  const rule = clean({
-    name: change.name ?? set.name,
-    applies: change.applies ?? set.applies,
-    ...source ? { source } : { text: change.text ?? set.text ?? "" }
-  });
-  appendKept(repo, { rule: { ...rule, of: id } }, `Changed writing rules: ${rule.name}`, why, actor, set.tier);
-  return find(repo, id);
-}
-function removeRule(repo, id, actor, why) {
-  const set = find(repo, id);
-  appendKept(repo, { rule: { name: set.name, of: id, removed: true } }, `Removed writing rules: ${set.name}`, why, actor, set.tier);
-  return set;
-}
-function listText(repo, sets = listRules(repo)) {
-  if (!sets.length)
-    return "No writing rules here yet. Add a rule set with anvc_rule (or anvc rule add), pointing at the file and heading where the rules are written.";
-  return sets.map((s) => {
-    const got = ruleText(repo, s);
-    return `- ${s.remote ? `"${s.name}" (from ${s.remote})` : s.name} \xB7 id: ${s.id}
-  applies to: ${s.applies.join(", ")}
-  text: ${where(s)}${"missing" in got ? ` (${got.missing})` : ""}`;
-  }).join(`
-`);
-}
-var RULE_TOOLS = [
-  {
-    name: "anvc_rules",
-    description: "The writing rules this repository keeps for each kind of text: commit messages, UI text, the README, a paper. " + "With `for` set to a file path, or to commit for a commit message, you get the text of every rule set that covers it. " + "Call it before writing text of a kind that has rules, and again after your context is compacted.",
-    inputSchema: {
-      type: "object",
-      properties: { for: { type: "string", description: "A repository-relative path such as README.md, or commit." } }
-    }
-  },
-  {
-    name: "anvc_rule",
-    description: "Add, change or remove a rule set: its name, what it covers, and where its rules are written. " + "Point at the file and heading where the rules already are (AGENTS.md, Commit messages) instead of copying them; use text only for rules written nowhere else.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["add", "change", "remove"] },
-        id: { type: "string", description: "For change and remove: the rule set's id, from anvc_rules." },
-        name: { type: "string", description: 'The kind of text, as someone would say it: "Commit messages".' },
-        applies: { type: "array", items: { type: "string" }, description: "File globs such as README.md or docs/**/*.md, or commit for commit messages." },
-        source: {
-          type: "object",
-          description: "Where the rules are written: a repository-relative Markdown or text file, and the heading of their section. Without a heading, the whole file.",
-          properties: { path: { type: "string" }, heading: { type: "string" } },
-          required: ["path"]
-        },
-        text: { type: "string", description: "The rules themselves, when they aren't written in a file." },
-        why: { type: "string", description: "Why you're adding, changing or removing it." }
-      },
-      required: ["action"]
-    }
-  }
-];
-function ruleTool(repo, name, args, actor) {
-  const str = (x) => typeof x === "string" && x.trim() ? x : undefined;
-  if (name === "anvc_rules") {
-    const target = str(args.for)?.trim();
-    if (!target)
-      return listText(repo);
-    const path = target === COMMIT ? COMMIT : below(repo, resolve11(repo, target)) ?? target;
-    return rulesFor(repo, path) ?? `No writing rules here cover ${path === COMMIT ? "commit messages" : path}.`;
-  }
-  const why = str(args.why);
-  const source = args.source && typeof args.source === "object" ? args.source : null;
-  const input = {
-    ...str(args.name) ? { name: str(args.name) } : {},
-    ...Array.isArray(args.applies) || str(args.applies) ? { applies: parseApplies(args.applies) } : {},
-    ...source && str(source.path) ? { source: parseFrom(repo, `${String(source.path)}${str(source.heading) ? `#${String(source.heading)}` : ""}`) } : {},
-    ...str(args.text) ? { text: str(args.text) } : {}
-  };
-  const id = str(args.id);
-  if (args.action === "add") {
-    if (!input.name || !input.applies?.length)
-      return "A rule set needs a name and what it applies to.";
-    const added = addRule(repo, input, actor, why);
-    return `Added:
-${listText(repo, listRules(repo).filter((s) => s.id === added))}`;
-  }
-  if (!id)
-    return "Give the rule set's id; anvc_rules lists them.";
-  if (args.action === "change") {
-    const set = changeRule(repo, id, input, actor, why);
-    return `Changed "${set.name}"
-${listText(repo, [set])}`;
-  }
-  if (args.action === "remove")
-    return `Removed "${removeRule(repo, id, actor, why).name}". Its records stay; it's no longer shown.`;
-  return "action is add, change or remove.";
-}
-var USAGE = `usage: anvc rule add "<name>" --applies "<glob>,<glob>" --from "<file>#<heading>"
-       anvc rule add "<name>" --applies commit --text "<rules>"
-       anvc rule change <id> [--name "<name>"] [--applies "..."] [--from "..." | --text "..."]
-       anvc rule remove <id>`;
-function ruleCommand(repo, command, positional, argv) {
-  if (command === "rules") {
-    console.log(ruleTool(repo, "anvc_rules", { for: flag(argv, "for") }, { kind: "person" }));
-    return 0;
-  }
-  const [verb, arg] = positional;
-  const from = flag(argv, "from");
-  const change = {
-    ...flag(argv, "name") ? { name: flag(argv, "name") } : {},
-    ...flag(argv, "applies") ? { applies: parseApplies(flag(argv, "applies")) } : {},
-    ...from ? { source: parseFrom(repo, from) } : {},
-    ...flag(argv, "text") ? { text: flag(argv, "text") } : {}
-  };
-  const why = flag(argv, "why");
-  const person = { kind: "person" };
-  try {
-    if (verb === "add" && arg && change.applies?.length && (from || change.text)) {
-      const id = addRule(repo, { ...change, name: arg }, person, why);
-      console.log(`Added "${arg}" \xB7 id: ${id}`);
-      return 0;
-    }
-    if (verb === "change" && arg && Object.keys(change).length) {
-      console.log(`Changed "${changeRule(repo, arg, change, person, why).name}".`);
-      return 0;
-    }
-    if (verb === "remove" && arg) {
-      console.log(`Removed "${removeRule(repo, arg, person, why).name}".`);
-      return 0;
-    }
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    return 1;
-  }
-  console.error(USAGE);
-  return 2;
-}
-
 // protocol/sources.ts
 import { appendFileSync as appendFileSync5, mkdirSync as mkdirSync15 } from "fs";
 import { createHash as createHash6, randomBytes as randomBytes3 } from "crypto";
-import { dirname as dirname10, join as join21, resolve as resolve12 } from "path";
+import { dirname as dirname10, join as join23, resolve as resolve12 } from "path";
 var MAX_SOURCE = 64 * 1024;
 var MAX_ASKED = 2000;
 var MAX_READ = 4 * 1024 * 1024;
 var DOCUMENT = /\.(pdf|md|markdown|txt|rst|tex|bib|html?|csv|tsv|jsonl)$/i;
 var PDF = /\.pdf$/i;
 var str = (v) => typeof v === "string" && v.trim() ? v : null;
-var folder = (repo) => join21(captureRoot(), repoKey(repo), "sources");
+var folder = (repo) => join23(captureRoot(), repoKey(repo), "sources");
 function isDocument(path, cwd) {
   if (!DOCUMENT.test(path) || path.split(/[\\/]/).some((p) => p.length > 1 && p.startsWith(".") && p !== ".."))
     return false;
@@ -7318,7 +7710,7 @@ function keepSources(repo, payload, call, cwd, agent) {
     return 0;
   const ts = new Date().toISOString();
   const session = str(payload.session_id);
-  const file = join21(folder(repo), `${ts.slice(0, 10)}.jsonl`);
+  const file = join23(folder(repo), `${ts.slice(0, 10)}.jsonl`);
   const rows = found.flatMap((f) => {
     const text = f.text === null ? null : scrub(headTail(f.text, MAX_SOURCE), MAX_SOURCE * 2);
     const hash = createHash6("sha256").update(`${f.url ?? f.path ?? f.query}
@@ -7470,7 +7862,7 @@ function sourcesView(repo, query, id) {
 }
 
 // protocol/status.ts
-import { readFileSync as readFileSync20 } from "fs";
+import { readFileSync as readFileSync21 } from "fs";
 var ITEM_LABELS = { next: "Up next", doing: "In progress", done: "Done", dropped: "Dropped" };
 function readItems(records) {
   const items = new Map;
@@ -7644,7 +8036,7 @@ function working(root, items, now) {
 function taskGiven(transcript, type, claimed) {
   let text = "";
   try {
-    text = readFileSync20(transcript, "utf8");
+    text = readFileSync21(transcript, "utf8");
   } catch {
     return null;
   }
@@ -7964,6 +8356,32 @@ switch (command) {
   ${DATA_MODES[now.mode].what}`);
     break;
   }
+  case "absorb": {
+    const want = positional2[0];
+    if (want === "run") {
+      const done = absorb(gitOrNull(repo, ["rev-parse", "--show-toplevel"]) ?? repo);
+      console.log(done ? `Updated ${done.written} goal${done.written === 1 ? "" : "s"} and rule sets from the sessions, with ${done.tokens.toLocaleString("en")} tokens.` : "Nothing to update: it's off, nothing is new, or an update is already running.");
+      break;
+    }
+    const target = settingFor();
+    if (want !== undefined) {
+      if (!(want in ABSORB_MODES)) {
+        console.error(`usage: anvc absorb [${Object.keys(ABSORB_MODES).join("|")}|run] [--everywhere]`);
+        process.exitCode = 2;
+        break;
+      }
+      if (!has2("everywhere") && !target) {
+        console.error(`${repo} is not in a git repository; use --everywhere for every project.`);
+        process.exitCode = 1;
+        break;
+      }
+      setAbsorbMode(target, want);
+    }
+    const now = target ? absorbMode(target) : { mode: absorbMode(null).mode, from: "everywhere" };
+    console.log(`Goals, writing rules and map from your sessions${target ? "" : " in every project"}: ${ABSORB_MODES[now.mode].label}${now.from === "default" ? " (nothing chosen yet)" : now.from === "everywhere" && target ? " (the choice for every project)" : ""}
+  ${ABSORB_MODES[now.mode].what}`);
+    break;
+  }
   case "results": {
     const every = listResults(repo);
     const all = every.filter((r) => (!flag2("status", "") || r.status === flag2("status", "")) && (!flag2("part", "") || r.part === flag2("part", "")));
@@ -8016,7 +8434,7 @@ Start a new agent session for this to take effect.`);
   }
   case "check": {
     const file = positional2[0];
-    if (!file || !existsSync18(file)) {
+    if (!file || !existsSync19(file)) {
       console.error("usage: anvc check <a document, such as README.md or paper.tex>");
       process.exitCode = 2;
       break;
@@ -8262,7 +8680,7 @@ ${INSTRUCTION_LINES.map((l) => `  ${l}`).join(`
       console.log(file ? `Removed the lines from ${file}. The project commits this file, so commit the change.` : "No ANVC lines in AGENTS.md or CLAUDE.md; nothing to do.");
     } else if (want === undefined) {
       const file = instructionsFile(repo);
-      console.log(file ? `${basename9(file)} ${instructionsOn(repo) ? "asks" : "doesn't ask"} your agent to record its work. Change it: anvc instructions on|off` : "There's no AGENTS.md or CLAUDE.md here.");
+      console.log(file ? `${basename11(file)} ${instructionsOn(repo) ? "asks" : "doesn't ask"} your agent to record its work. Change it: anvc instructions on|off` : "There's no AGENTS.md or CLAUDE.md here.");
     } else {
       console.error("usage: anvc instructions [on|off]");
       process.exitCode = 2;
@@ -8338,7 +8756,7 @@ ${INSTRUCTION_LINES.map((l) => `  ${l}`).join(`
     const result = backfill(repo, { root, since, scrub });
     if (!result.events.length) {
       console.log(`No Claude Code, Codex or Cursor sessions found for ${repo}.`);
-      console.log(`Looked in ${transcriptDir(repo, root)}, ${join22(codexDir(), "sessions")} and ${join22(cursorDir(), "projects")}`);
+      console.log(`Looked in ${transcriptDir(repo, root)}, ${join24(codexDir(), "sessions")} and ${join24(cursorDir(), "projects")}`);
       break;
     }
     const commands = result.events.filter((e) => e.tool === "Bash").length;
@@ -8414,7 +8832,7 @@ To keep where the ones you rely on came from, tell your agent: "record the resul
     break;
   }
   case "ingest": {
-    const dir = resolve13(flag2("capture", join22(homedir9(), ".anvc", "capture")));
+    const dir = resolve13(flag2("capture", join24(homedir10(), ".anvc", "capture")));
     const events = captureFiles(null, dir).flatMap((f) => readCapture(f));
     const result = ingest(repo, events);
     console.log(`ingested ${result.written} records from ${events.length} capture events (${result.skipped} already present)`);
@@ -8753,11 +9171,11 @@ retired (${retired.length})`);
   }
   case "brief": {
     const root = repoRoot(repo) ?? repo;
-    const marker = join22(stateRoot(), `brief-${repoKey(root)}`);
+    const marker = join24(stateRoot(), `brief-${repoKey(root)}`);
     let since = flag2("since", "");
     if (!since) {
       try {
-        since = readFileSync21(marker, "utf8").trim();
+        since = readFileSync22(marker, "utf8").trim();
       } catch {}
     }
     if (!since)
@@ -8767,7 +9185,7 @@ retired (${retired.length})`);
     console.log(withIndex2((db) => briefText(brief(db, repo, since))));
     try {
       mkdirSync16(dirname11(marker), { recursive: true });
-      writeFileSync13(marker, new Date().toISOString());
+      writeFileSync14(marker, new Date().toISOString());
     } catch {}
     break;
   }
@@ -8861,6 +9279,7 @@ ${s.changes.map((c) => `  ${c}`).join(`
   anvc local [on|off]                      keep everything ANVC saves here on this computer (--everywhere for every project)
   anvc assist [auto|start|ask]             how much ANVC tells your agent on its own (--everywhere for every project)
   anvc data [off|results]                  keep track of the results a project relies on: on unless turned off (--everywhere for every project)
+  anvc absorb [off|claude|codex|run]       keep goals, writing rules and the project map up to date from your sessions with a small model: off unless turned on (--everywhere for every project)
   anvc results [--status S] [--part P]     results, with their status and whether what they depend on changed
   anvc whence <number|name>                where a number came from
   anvc check <file>                        where each number in a document came from

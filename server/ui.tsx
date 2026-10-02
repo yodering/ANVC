@@ -8,10 +8,10 @@ import {
 } from "preact/hooks";
 import { Sprite } from "./icons";
 import { HelpedBlock } from "./helped";
+import { StatsPage } from "./stats";
 import { Settings } from "./settings";
 import { Tour } from "./tour";
 import { Choose } from "./choose";
-import { ProjectMap } from "./map";
 import { ProjectPage } from "./project";
 import { Copy, CopyButton, Field, getJson, Hint, Icon, Modal, OutcomeBadge, plural, send, Source, Track } from "./widgets";
 import {
@@ -20,7 +20,6 @@ import {
   filterTurns,
   inOutcome,
   groupSessions,
-  turnArea,
   turnTitle,
   type Outcome,
   type Turn,
@@ -28,8 +27,7 @@ import {
 } from "./work-model";
 import { exampleWork } from "./example-work";
 import { FolderSwitch, FoldersPage, OffBanner, useFolders } from "./folders";
-import { ResultsPage } from "./results";
-import { SourcesPage } from "./sources";
+import { ResultsHub } from "./results";
 import { FaqPage } from "./faq";
 import { anvc, useInstall, type Install } from "./install";
 import "./ui.css";
@@ -49,17 +47,16 @@ const FILTERS: { value: Outcome; label: string }[] = [
 const DAY = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" });
 
 
-type Page = "project" | "work" | "map" | "results" | "sources" | "settings" | "folders" | "faq";
+type Page = "project" | "work" | "results" | "stats" | "settings" | "folders" | "faq";
 /** The sidebar's pages after the work log; choosing the open one goes back to it. */
 const PAGES: Array<[Page, string, string]> = [
   ["project", "target", "Project"],
-  ["map", "git-commit-horizontal", "Project map"],
   ["results", "database", "Results"],
-  ["sources", "file-text", "Sources"],
+  ["stats", "chart-column", "Stats"],
   ["folders", "folder", "Folders"],
 ];
 const TITLE: Record<Page, string> = {
-  project: "Project", work: "Work log", map: "Project map", results: "Results", sources: "Sources", settings: "Settings", folders: "Folders", faq: "Questions",
+  project: "Project", work: "Work log", results: "Results and sources", stats: "Stats", settings: "Settings", folders: "Folders", faq: "Questions",
 };
 
 /**
@@ -202,7 +199,7 @@ function Version() {
       <span>ANVC {v.version} beta</span>
       {status && <span class="version-status" role="status">{status}</span>}
       <button type="button" class="link-button version-update" onClick={updateNow} disabled={run.busy}>
-        {run.busy ? "Updating…" : "Update"}
+        {run.busy ? "Updating…" : status === "Up to date" ? "Check again" : "Update"}
       </button>
     </div>
   );
@@ -282,31 +279,37 @@ function TurnRow({
             <span>Your agent didn't say.</span>
           </span>
         )}
-        {/* Separators go between the parts that are there, so a row with no
-            files doesn't start with a dot. */}
+        {/* Each part names itself with an icon, and what ended up happening
+            to the attempt is a pill, so the line reads at a glance. */}
         <span class="row-meta">
-          {[
-            turnArea(turn) && <span class="row-area">{turnArea(turn)}</span>,
-            turn.filesWritten.length > 0 && <span>{plural(turn.filesWritten.length, "file")}</span>,
-            // Elapsed time is only news when there was any: a row reading
-            // "1s" on every line is a column of noise.
-            turn.seconds > 5 && <span>{duration(turn.seconds)}</span>,
-            turn.tier === "private" && (
-              <span class="row-private" title="Only on this computer">
-                <Icon name="hard-drive" size={13} />
-                private
-              </span>
-            ),
-            turn.retired && <span class="row-retired" title="No longer shown to agents">retired</span>,
-            turn.replacedBy && <span class="row-retired" title="A later version replaced this">replaced</span>,
-            turn.openDeadEnd && <span class="row-open" title="Nothing has retried or replaced this">not retried</span>,
-          ].filter(Boolean).map((part, i) => (
-            <>{i > 0 && !(i === 1 && turnArea(turn)) && <span class="meta-dot">·</span>}{part}</>
-          ))}
+          {turn.filesWritten.length > 0 && (
+            <span class="meta-item" title={`Files it changed:\n${turn.filesWritten.slice(0, 20).join("\n")}`}><Icon name="file-text" size={13} />{changedLine(turn.filesWritten)}</span>
+          )}
+          {/* Elapsed time is only news when there was any: a row reading "1s"
+              on every line is a column of noise. */}
+          {turn.seconds > 5 && <span class="meta-item" title="How long it took"><Icon name="clock" size={13} />took {duration(turn.seconds)}</span>}
+          {turn.tier === "private" && (
+            <span class="meta-item row-private" title="Kept only on this computer. Rows without this are shared: they go out with git push once sharing is on."><Icon name="hard-drive" size={13} />Private</span>
+          )}
+          {turn.retired && <span class="meta-pill" title="No longer shown to agents">Retired</span>}
+          {turn.replacedBy && <span class="meta-pill" title="A later version replaced this">Replaced</span>}
+          {turn.openDeadEnd && <span class="meta-pill is-open" title="Nobody has tried this again since it was abandoned">Not tried again</span>}
         </span>
       </span>
     </button>
   );
+}
+
+/**
+ * The files an attempt changed, in words: "4 files in cloud/ and docs/". A
+ * folder's name alone ("cloud") read as where it ran; the slash and the
+ * words say they're folders.
+ */
+function changedLine(paths: string[]): string {
+  const files = plural(paths.length, "file");
+  const dirs = [...new Set(paths.map((p) => (p.includes("/") ? `${p.split("/")[0]}/` : "")))];
+  if (dirs.includes("")) return files;
+  return `${files} in ${dirs.length > 2 ? `${dirs.slice(0, 2).join(", ")} and ${dirs.length - 2} more` : dirs.join(" and ")}`;
 }
 
 function AttemptDetail({
@@ -760,7 +763,7 @@ function App() {
               if (event.key === "ArrowRight") setSidebarWidth((w) => clampSidebar(w + 16));
             }}
           />
-          <div class="brand">
+          <div class="brand" data-page={page === "work" && session ? "Session" : TITLE[page]}>
             <span class="brand-symbol">
               <Icon name="layers" size={17} />
             </span>
@@ -873,10 +876,9 @@ function App() {
           {page === "work" && !example && <OffBanner folders={folderState} />}
           {page === "work" && !example && !session && loaded && <HelpedBlock />}
           {page === "folders" && <FoldersPage folders={folderState} />}
-          {page === "results" && <ResultsPage />}
-          {page === "sources" && <SourcesPage />}
+          {page === "results" && <ResultsHub />}
+          {page === "stats" && <StatsPage />}
           {page === "project" && <ProjectPage />}
-          {page === "map" && <ProjectMap />}
           {page === "settings" && <Settings />}
           {page === "faq" && <FaqPage />}
           {page === "work" && (loaded || example) && data.turns.length > 0 && (

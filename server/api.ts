@@ -13,6 +13,7 @@ import { diagram } from "./layout";
 import type { CheckpointRecord, Tier } from "../protocol/record";
 import { allActivity, repoRoot } from "../protocol/activity";
 import { helped } from "../protocol/helped";
+import { stats } from "../protocol/stats";
 
 /**
  * Turns as a timeline: what the agent did, in order, with timestamps.
@@ -209,3 +210,6 @@ export async function mapView(repo: string) {
 /** What anvc did here: shown, opened, avoided, confirmed. */
 export const helpedView = (repo: string) =>
   withIndex(repo, (db) => helped(db, repo, allActivity(repoRoot(repo) ?? repo)));
+
+/** Everything the Stats page counts. */
+export const statsView = (repo: string) => withIndex(repo, (db, records) => stats(db, repoRoot(repo) ?? repo, turns(db, records, Number.MAX_SAFE_INTEGER)));

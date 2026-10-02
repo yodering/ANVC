@@ -36,6 +36,7 @@ import { allActivity, plural, readActivity, repoRoot } from "./activity";
 import { folders, setFolder } from "./folders";
 import { isLocalOnly, LOCAL_ONLY_REFUSAL, setLocalOnly } from "./localonly";
 import { checkResult, DATA_MODES, dataMode, describe, listResults, recordStatus, setDataMode, whence, type DataMode } from "./results";
+import { absorb, ABSORB_MODES, absorbMode, setAbsorbMode, type AbsorbMode } from "./absorb";
 import { checkDocument, describeRow } from "./check";
 import { addGoal, allGoals, answerGoal, approvalOn, changeGoal, GOAL_LABELS, goalLines, goalTree, setApproval } from "./goals";
 import { mainStep } from "./runs";
@@ -117,6 +118,23 @@ switch (command) {
     }
     const now = target ? dataMode(target) : { mode: dataMode(repo).mode, from: "everywhere" as const };
     console.log(`Keeping track of results${target ? "" : " in every project"}: ${DATA_MODES[now.mode].label}${now.from === "default" ? " (nothing chosen yet)" : now.from === "everywhere" && target ? " (the choice for every project)" : ""}\n  ${DATA_MODES[now.mode].what}`);
+    break;
+  }
+  case "absorb": {
+    const want = positional[0];
+    if (want === "run") {
+      const done = absorb(gitOrNull(repo, ["rev-parse", "--show-toplevel"]) ?? repo);
+      console.log(done ? `Updated ${done.written} goal${done.written === 1 ? "" : "s"} and rule sets from the sessions, with ${done.tokens.toLocaleString("en")} tokens.` : "Nothing to update: it's off, nothing is new, or an update is already running.");
+      break;
+    }
+    const target = settingFor();
+    if (want !== undefined) {
+      if (!(want in ABSORB_MODES)) { console.error(`usage: anvc absorb [${Object.keys(ABSORB_MODES).join("|")}|run] [--everywhere]`); process.exitCode = 2; break; }
+      if (!has("everywhere") && !target) { console.error(`${repo} is not in a git repository; use --everywhere for every project.`); process.exitCode = 1; break; }
+      setAbsorbMode(target, want as AbsorbMode);
+    }
+    const now = target ? absorbMode(target) : { mode: absorbMode(null).mode, from: "everywhere" as const };
+    console.log(`Goals, writing rules and map from your sessions${target ? "" : " in every project"}: ${ABSORB_MODES[now.mode].label}${now.from === "default" ? " (nothing chosen yet)" : now.from === "everywhere" && target ? " (the choice for every project)" : ""}\n  ${ABSORB_MODES[now.mode].what}`);
     break;
   }
   case "results": {
@@ -886,6 +904,7 @@ switch (command) {
   anvc local [on|off]                      keep everything ANVC saves here on this computer (--everywhere for every project)
   anvc assist [auto|start|ask]             how much ANVC tells your agent on its own (--everywhere for every project)
   anvc data [off|results]                  keep track of the results a project relies on: on unless turned off (--everywhere for every project)
+  anvc absorb [off|claude|codex|run]       keep goals, writing rules and the project map up to date from your sessions with a small model: off unless turned on (--everywhere for every project)
   anvc results [--status S] [--part P]     results, with their status and whether what they depend on changed
   anvc whence <number|name>                where a number came from
   anvc check <file>                        where each number in a document came from

@@ -165,7 +165,7 @@ test("a long rule set is cut to fit the hook, and one that doesn't fit is said n
   expect(rulesContext(repo, "PreToolUse", "docs/a.md", seen)).toBeNull();
 });
 
-test("the agent gets the list at session start and each rule set's text once, when it writes what it covers", () => {
+test("a session start names no rules, and the agent gets each rule set's text once, when it writes what it covers", () => {
   const repo = project();
   const state = tmp("anvc-rules-state-");
   addRule(repo, { name: "Commit messages", applies: ["commit"], source: { path: "AGENTS.md", heading: "Commit messages" } }, person);
@@ -175,11 +175,8 @@ test("the agent gets the list at session start and each rule set's text once, wh
   const edit = { tool_name: "Edit", tool_input: { file_path: join(repo, "docs/a.md") } };
   const commit = { tool_name: "Bash", tool_input: { command: 'git commit -m "Add docs"' } };
 
-  const index = said("SessionStart", { source: "startup" })!;
-  expect(index).toContain("- Commit messages: commit · AGENTS.md › Commit messages");
-  expect(index).toContain("- Docs: docs/**/*.md · AGENTS.md › Writing");
-  expect(index).not.toContain("The subject says what changed.");
-  expect(said("SessionStart", { source: "startup" })).toBeNull();
+  // The list is for the person, on the Writing rules page.
+  expect(said("SessionStart", { source: "startup" }) ?? "").not.toContain("Commit messages");
 
   expect(said("PreToolUse", edit)).toContain("Put the new thing at the end of the sentence.");
   expect(said("PreToolUse", edit)).toBeNull();
@@ -189,8 +186,8 @@ test("the agent gets the list at session start and each rule set's text once, wh
   expect(onCommit).toContain("The subject says what changed.");
   expect(said("PreToolUse", commit)).toBeNull();
 
-  // Compaction forgets what was said, so it's all said once more.
-  expect(said("SessionStart", { source: "compact" })).toContain("- Docs:");
+  // Compaction forgets what was said, so a rule set's text is said once more.
+  said("SessionStart", { source: "compact" });
   expect(said("PreToolUse", commit)).toContain("The subject says what changed.");
 
   // At the start level the rules still come; with the moment off, nothing does.

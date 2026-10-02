@@ -525,7 +525,7 @@ function setLocalOnly(repo, on) {
 // package.json
 var package_default = {
   name: "anvc",
-  version: "0.4.8",
+  version: "0.4.9",
   private: true,
   type: "module",
   scripts: {

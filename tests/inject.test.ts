@@ -543,7 +543,9 @@ test("everything said at once stays under Claude Code's limit, and the metrics s
   const person = { kind: "person" as const };
   const long = (what: string, i: number) => `${what} ${i} ${"with a title long enough to fill its share of the block ".repeat(3)}`.slice(0, 190);
   const reason = "a reason that goes on ".repeat(6);
-  // Every block a session start can say, each near its own cap.
+  // Every block a session start can say, each near its own cap. Goals are
+  // off by default, so they're switched on here to fill their share.
+  writeAssist(repo, { moment: "goals", on: true });
   for (let i = 0; i < 6; i++) {
     const session = { agent: "claude-code", run_id: i < 4 ? "s1" : "s0" };
     appendRecord(repo, rec({ session, intent: { goal: long("Dead end", i) }, outcome: { status: "abandoned", errors: [reason], recheck: null } }));

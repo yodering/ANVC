@@ -35,7 +35,8 @@ import { addInstructions, removeInstructions } from "../protocol/instructions";
 import { options, setupEverywhere, setupProject } from "../protocol/options";
 import { installPrePush, removePrePush } from "../protocol/prepush";
 import { forRepo, retirements } from "../protocol/query";
-import { addRule, changeRule, listRules, parseApplies, parseFrom, removeRule, ruleText } from "../protocol/rules";
+import { addRule, changeRule, listRules, parseApplies, parseFrom, removeRule, ruleFiles, ruleText } from "../protocol/rules";
+import { absorbView, clearProjectAbsorbMode, setAbsorbMode, type AbsorbMode } from "../protocol/absorb";
 import { personDecide } from "../protocol/retire";
 import { checkDaily, CLI, desktopFile, HOME, hooksBehind, installs, managedBy, readUpdate, stateHome, update, version } from "../protocol/version";
 import { repoRoot } from "../protocol/activity";
@@ -43,7 +44,7 @@ import { exportPolicy, FIELDS, importPolicy, PRESETS, readPolicy, writePolicy, t
 import { folders, setFolder } from "../protocol/folders";
 import { flag, shellWord } from "../protocol/args";
 import { tierFacts } from "../protocol/tiers";
-import { helpedView, mapView, repoView } from "./api";
+import { helpedView, mapView, repoView, statsView } from "./api";
 import { below, isRepo, readJson, tokenProof, uiToken, writeJson } from "../protocol/rawlog";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { currentNotes, inventory, tilde, writeNote } from "../protocol/tools";
@@ -231,6 +232,7 @@ async function answer(request: Request, ownPort: number | undefined): Promise<Re
   // Laid out server-side; the browser receives coordinates, not a layout engine.
   if (url.pathname === "/api/tiers") return attempt(() => tierFacts(repo));
   if (url.pathname === "/api/helped") return attempt(() => helpedView(repo));
+  if (url.pathname === "/api/stats") return attempt(() => statsView(repo));
 
   /** Writes come only from this page: see the note on /api/policy. */
   const fromPage = () => {
@@ -345,6 +347,14 @@ async function answer(request: Request, ownPort: number | undefined): Promise<Re
       else throw new Error("needs an id and a status, or a mode");
     });
   }
+  // Goals and writing rules from the sessions: on, off, or which command runs it.
+  if (url.pathname === "/api/absorb") {
+    return route<{ mode?: AbsorbMode; scope?: string }>("refused: this can only be changed from the anvc page", () => absorbView(root), (body) => {
+      if (body.mode) setAbsorbMode(body.scope === "everywhere" ? null : root, body.mode);
+      else if (body.scope === "follow") clearProjectAbsorbMode(root);
+      else throw new Error("needs a mode");
+    });
+  }
   // Goals: the person adds one, changes its status or title, or undoes a
   // change, which is a change back. Guarded like every other write.
   if (url.pathname === "/api/goals") {
@@ -372,7 +382,7 @@ async function answer(request: Request, ownPort: number | undefined): Promise<Re
   // one are the person's, guarded like every other write.
   if (url.pathname === "/api/rules") {
     return route<{ action?: string; id?: string; name?: string; applies?: string; from?: string; text?: string }>("refused: writing rules can only be changed from the anvc page",
-      () => ({ rules: listRules(root).map((s) => ({ ...s, ...ruleText(repo, s) })) }),
+      () => ({ rules: listRules(root).map((s) => ({ ...s, ...ruleText(repo, s) })), files: ruleFiles(root) }),
       (body) => {
         const input = () => ({
           name: body.name?.trim() ?? "", applies: parseApplies(body.applies ?? ""),

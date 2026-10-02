@@ -203,6 +203,4 @@ the code.
 - [Development](docs/guide/development.md)
 - [Contributing](CONTRIBUTING.md)
 
-The code is under the Apache-2.0 license. The name ANVC is a trademark, so a
-fork needs its own name. [TRADEMARKS.md](TRADEMARKS.md) says how you can use
-the name.
+ANVC is open source under the [Apache-2.0 license](LICENSE).

@@ -6,15 +6,16 @@
  */
 import { useState } from "preact/hooks";
 import { Goals } from "./goals";
+import { ProjectMap } from "./map";
 import { Rules } from "./rules";
 import { Status } from "./status";
 import { Tools } from "./tools";
 import { Hint } from "./widgets";
 
-type Tab = "status" | "goals" | "rules" | "tools";
-const TABS: Array<[Tab, string]> = [["status", "Status"], ["goals", "Goals"], ["rules", "Writing rules"], ["tools", "Tools"]];
+type Tab = "map" | "status" | "goals" | "rules" | "tools";
+const TABS: Array<[Tab, string]> = [["map", "Map"], ["status", "Status"], ["goals", "Goals"], ["rules", "Writing rules"], ["tools", "Tools"]];
 const saved = (): Tab => {
-  try { const t = localStorage.getItem("anvc.project.tab"); return TABS.some(([id]) => id === t) ? t as Tab : "status"; } catch { return "status"; }
+  try { const t = localStorage.getItem("anvc.project.tab"); return TABS.some(([id]) => id === t) ? t as Tab : "map"; } catch { return "map"; }
 };
 
 export function ProjectPage() {
@@ -31,6 +32,7 @@ export function ProjectPage() {
         <span class="project-info"><Hint id={`project-${tab}`} /></span>
       </div>
       <div class="project-panel" role="tabpanel">
+        {tab === "map" && <ProjectMap />}
         {tab === "status" && <Status />}
         {tab === "goals" && <Goals />}
         {tab === "rules" && <Rules />}

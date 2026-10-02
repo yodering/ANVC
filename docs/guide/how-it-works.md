@@ -18,7 +18,7 @@ it, each WebSearch, and each PDF, along with notes and data files (.md, .txt,
 .tex, .html, .csv and the like) that git doesn't keep, because they're outside
 the repository or untracked in it. Each is kept with the text the agent got
 back, secrets taken out, up to 64 KiB with the middle left out past that. A
-PDF's text is read with `pdftotext` when it's installed. The Sources page lists
+PDF's text is read with `pdftotext` when it's installed. The Sources tab, on the Results page, lists
 them with the attempts and results from the same session and any record that
 names their URL or path, and agents look them up with `anvc_sources`. They stay
 on this computer; Sources in Settings turns them off.
