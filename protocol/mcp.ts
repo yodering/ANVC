@@ -33,7 +33,7 @@ import { RULE_TOOLS, ruleTool } from "./rules";
 import { appendRecord, defaultTier, readRecords, RESULT_STATUSES, RETIRE_REASONS, ulid, MAX_DETAIL_BYTES, MAX_DETAIL_ITEMS, MAX_EVIDENCE, type CheckpointRecord, type FailureScope, type ResultStatus, type Tier } from "./record";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { TOOL_TOOLS, toolTool } from "./tools";
-import { STATUS_TOOLS, statusTool } from "./status";
+import { ALONGSIDE, STATUS_TOOLS, statusTool } from "./status";
 import { openWorkLog } from "./open";
 import { SOURCE_TOOLS, sourcesSection, sourceTool } from "./sources";
 
@@ -221,11 +221,12 @@ const TOOLS = [
     name: "anvc_result",
     description:
       "Record a result: a value someone will rely on, such as a number for a paper, a benchmark or a count. "
-      + "Months later nobody remembers which run made a number or whether it can still be trusted, so record it when you produce or report it: "
+      + "Record it when you produce or report it: "
       + "the value as written, the file and key it was read from, the command and settings, the files it depends on, and why. "
       + "ANVC checks the value is really at the source and fingerprints the files, so a later reader sees whether anything changed. "
       + "To record several, pass them as `results`, one call for all of them; a field given beside the list, such as a shared command or depends, applies to each. "
-      + "To change a result's status later, pass `of` with its id and the new status. Locking is the person's decision: asking for locked records a proposal.",
+      + "To change a result's status later, pass `of` with its id and the new status. Locking is the person's decision: asking for locked records a proposal. "
+      + ALONGSIDE,
     inputSchema: {
       type: "object",
       properties: {
@@ -271,100 +272,74 @@ const TOOLS = [
   },
   {
     name: "anvc_checkpoint",
+    // Loaded into context each time an agent fetches it, so every word here
+    // costs every session that records: 9,001 characters became 5,781.
     description:
-      "Record why you did this piece of work. Call it when you finish a unit of work, or when you abandon an approach — an abandoned attempt is the most valuable record, because nothing else in version control keeps it. "
-      + "You know why you did the work; nothing reading the transcript afterwards does. Write the goal in your own words, one line, as you would a commit message: what you set out to achieve, not what the user typed. "
-      + "Never copy the user's message into the goal, and never include secrets, personal details, or anything the user would not put in a commit message.",
+      "Record why you did a piece of work, when you finish it or abandon an approach. An abandoned attempt is the most valuable record: nothing else in version control keeps it. "
+      + "Write the goal in your own words, like a commit subject: what you set out to do, not what the user typed. Never include secrets, personal details, or anything the user would not put in a commit message. "
+      + ALONGSIDE,
     inputSchema: {
       type: "object",
       properties: {
-        goal: { type: "string", description: "One line, under 200 characters: what this work set out to achieve. Imperative mood, like a commit subject." },
-        outcome: { type: "string", enum: ["kept", "abandoned"], description: "kept if the work stands; abandoned if you backed it out or it did not work." },
+        goal: { type: "string", description: "One line under 200 characters, in the imperative, like a commit subject." },
+        outcome: { type: "string", enum: ["kept", "abandoned"], description: "kept if the work stands. abandoned if you backed it out or it did not work." },
         tier: {
           type: "string",
           enum: ["shared", "private"],
-          description: "Who can read this record. shared: sent with git push; teammates and their agents read it. private: stays on this machine; only agents here read it. Omit to use the repository default, which is shared unless the user changed it; if they made it private, shared is ignored. Use private for anything the user would not put in a commit, such as a customer name or an internal URL. You cannot share a private record; only the user can.",
-
+          description: "Who can read it. shared: sent with git push, to teammates and their agents. private: stays on this machine. Omit it for the repository default; if the user made that private, shared is ignored. Use private for what the user would not put in a commit, such as a customer name. Only the user can share a private record.",
         },
-        why: { type: "string", description: "Why, in one or two sentences: the first thing a reader asks. For an abandoned attempt, why it failed. For kept work, the choice you made and the reason for it over the alternatives, which the diff cannot show." },
-        constraints: { type: "array", items: { type: "string" }, description: "Limits you were working under: an API to keep stable, a file not to touch." },
+        why: { type: "string", description: "Why, in one or two sentences. Abandoned: why it failed. Kept: why this choice over the alternatives, which the diff can't show." },
+        constraints: { type: "array", items: { type: "string" }, description: "Limits you worked under, such as an API to keep stable." },
         files: { type: "array", items: { type: "string" }, description: "Repository-relative paths this work changed." },
-        tests: { type: "object", properties: { passed: { type: "number" }, failed: { type: "number" } }, description: "Test counts if you ran them." },
-        parent: { type: "string", description: "The id of the attempt this one continues from — same problem, next try. Only for a retry after a dead end. If the earlier work was a different problem that merely happened first, leave this out." },
-        serves: { type: "string", description: "The id of the goal or sub-goal this work is for, from anvc_goals, or of a record whose goal it is in service of. Use it when several attempts add up to one larger objective, so a later reader can see they were one effort rather than unrelated tasks." },
-        supersedes: { type: "string", description: "The id of a record this one replaces because the goal itself changed. The old record stays; this one points back at it." },
-        scope: { type: "string", enum: ["local", "general"], description: "Only for an abandoned attempt. 'local' means this step failed. 'general' means the whole approach is dead and nobody should try it again. Default to 'local' — a wrong 'general' permanently warns people off something that works, so only use it when you have evidence the approach itself cannot work." },
-        recheck: { type: ["string", "null"], description: "REQUIRED when outcome is abandoned. One command a later agent can run to find out whether this is still true, such as the test or build that failed — worth more than any explanation, because it lets the next reader verify instead of taking your word for it. If genuinely nothing settles it, pass null; do not leave it out." },
+        tests: { type: "object", properties: { passed: { type: "number" }, failed: { type: "number" } }, description: "Test counts, if you ran tests." },
+        parent: { type: "string", description: "Only for a retry after a dead end: the id of the attempt this one continues. Leave it out when the earlier work was a different problem." },
+        serves: { type: "string", description: "The id of the goal (from anvc_goals) or record this work is for, when several attempts make one effort." },
+        supersedes: { type: "string", description: "The id of a record this one replaces because the goal changed. The old record stays." },
+        scope: { type: "string", enum: ["local", "general"], description: "Only for abandoned. local (the default): this step failed. general: the whole approach is dead. A wrong general warns people off something that works, so use it only with evidence." },
+        recheck: { type: ["string", "null"], description: "Required when abandoned: one command a later agent can run to see if this is still true, such as the failing test. If nothing settles it, pass null. Don't leave it out." },
         detail: {
           type: "object",
-          description: "Everything a later reader might need that a one-line summary destroys. None of this is ever shown to an agent unasked — it is stored, and a record is allowed 64 KiB. Be generous: you cannot know which part a future question will hinge on, and anything left out is unanswerable forever.",
+          description: "What a one-line summary loses. Stored up to 64 KiB and never shown unasked, so be generous.",
           properties: {
-            output: { type: "string", description: "The verbatim output of what failed — the actual stack trace or test failure, not your summary of it. This is what lets a later reader notice your diagnosis was wrong." },
-            narrative: { type: "string", description: "What was going on, in prose. What you were trying, what surprised you, what you suspected. Measured to work at least as well as structured fields at changing what a later agent does, so write it properly rather than telegraphically." },
+            output: { type: "string", description: "The verbatim output of what failed, not your summary, so a reader can see if your diagnosis was wrong." },
+            narrative: { type: "string", description: "What happened, in full sentences: what you tried, what surprised you, what you suspected." },
             ruled_out: {
               type: "array",
-              description: "Approaches you considered and set aside, each with why. An approach with no reason is the thing this replaces.",
+              description: "Approaches you set aside, each with why.",
               items: { type: "object", properties: { approach: { type: "string" }, because: { type: "string" } }, required: ["approach", "because"] },
             },
-            not_investigated: { type: "array", items: { type: "string" }, description: "What you did NOT check. Different from ruled_out and more valuable: it tells the next reader exactly where you stopped thinking, so they can start there." },
-            commands: { type: "array", items: { type: "string" }, description: "The commands you actually ran, in order, so someone can repeat the attempt rather than guess at it." },
+            not_investigated: { type: "array", items: { type: "string" }, description: "What you did not check, so the next reader knows where you stopped." },
+            commands: { type: "array", items: { type: "string" }, description: "The commands you ran, in order." },
           },
         },
         map: {
           type: "object",
-          description:
-            "Your understanding of a part of the system, kept current. Write one when you learn how a part actually works, change its shape, or find that the existing map is now wrong — a map replaces the previous one for that part by also passing `supersedes`. "
-            + "This is the layer no tool can derive: an import graph shows what calls what, but not what a part is FOR, what it must not break, or why it is shaped this way. That is what someone returning after months actually needs. "
-            + "Write it for a reader who has forgotten everything, including you.",
+          description: "How one part of the system works, kept current. Write one when you learn how a part works, change its shape, or find its map wrong, and pass supersedes to replace the old one. Say what the part is for and why it has this shape: imports can't show that.",
           properties: {
-            part: { type: "string", description: "What you are describing. Prefer a plain conceptual name a person would say out loud — 'record format', 'injection', 'the work log' — over a directory path. Reuse the exact name of an existing part when you mean that part, because two spellings become two boxes on the diagram." },
-            does: { type: "string", description: "What this part is for, in one or two plain sentences. Its job, not a list of its files. Say what it does rather than describing what it does: 'Decides what a record is' beats 'Responsible for handling record-related functionality'." },
+            part: { type: "string", description: "A name a person would say, such as 'record format', not a path. Reuse an existing part's exact name: two spellings make two boxes." },
+            does: { type: "string", description: "What the part is for, in one or two plain sentences." },
             layer: {
               type: "string",
               enum: [...LAYERS],
-              description: "Where it sits, so the diagram can rank it left to right. 'edge' touches the outside world (hooks, a live agent session). 'core' is the logic in the middle. 'store' is where things are persisted. 'tool' is something an agent or person invokes. 'surface' is what a human looks at.",
+              description: "edge: touches the outside world. core: logic in the middle. store: persists things. tool: called by an agent or person. surface: what a person looks at.",
             },
-            owns: {
-              type: "array",
-              items: { type: "string" },
-              description: "Files and directories this part owns, repository-relative. End with / to claim a whole directory. This is what connects the map to the recorded attempts, so the diagram can show where the work and the dead ends actually landed.",
-            },
+            owns: { type: "array", items: { type: "string" }, description: "Repository-relative files and folders it owns. End a folder with /." },
             reads: {
               type: "array",
-              description: "What this part depends on, and what it takes from each.",
-              items: {
-                type: "object",
-                properties: {
-                  part: { type: "string", description: "The exact name of the other part." },
-                  // This is drawn on the wire between two boxes, where a sentence
-                  // spans the whole gap and collides with its neighbour. Asking
-                  // for a noun phrase here is cheaper than shortening it later.
-                  what: { type: "string", description: "Two or three words naming what travels: 'parsed rows', 'the record index'. A noun phrase, not a sentence, and no leading article." },
-                },
-                required: ["part", "what"],
-              },
+              description: "Parts this one depends on, and what it takes from each.",
+              items: { type: "object", properties: { part: { type: "string" }, what: { type: "string", description: "Two or three words, no article: 'parsed rows'." } }, required: ["part", "what"] },
             },
             feeds: {
               type: "array",
-              description: "What depends on this part, and what it takes.",
-              items: {
-                type: "object",
-                properties: {
-                  part: { type: "string", description: "The exact name of the other part." },
-                  what: { type: "string", description: "Two or three words naming what travels: 'captured events', 'laid-out coordinates'. A noun phrase, not a sentence, and no leading article." },
-                },
-                required: ["part", "what"],
-              },
+              description: "Parts that depend on this one, and what they take.",
+              items: { type: "object", properties: { part: { type: "string" }, what: { type: "string", description: "Two or three words, no article: 'captured events'." } }, required: ["part", "what"] },
             },
             decisions: {
               type: "array",
-              description: "Design decisions that hold here, each with why. The 'why' is the part that decays fastest and costs the most to reconstruct — a reader can see WHAT the code does by reading it, and can never see why it is not something else.",
+              description: "Design decisions that hold here, each with why.",
               items: {
                 type: "object",
-                properties: {
-                  what: { type: "string", description: "The decision, as one plain claim: 'Records are immutable; a correction appends'." },
-                  because: { type: "string", description: "Why, with the evidence if there is any. Name the number you measured rather than saying it is faster." },
-                },
+                properties: { what: { type: "string" }, because: { type: "string", description: "Why, with the number you measured if there is one." } },
                 required: ["what", "because"],
               },
             },
@@ -373,14 +348,14 @@ const TOOLS = [
         },
         evidence: {
           type: "array",
-          description: "Where this can be checked: the files, lines and commits behind the claim. Addresses, not prose — a later agent can open a path or diff a commit, but can only believe a sentence.",
+          description: "Where this can be checked: paths, lines and commits, not prose.",
           items: {
             type: "object",
             properties: {
-              path: { type: "string", description: "Repository-relative path." },
-              line: { type: "number", description: "Line number, if the claim is about one place." },
-              commit: { type: "string", description: "A git oid this claim depends on, so staleness can be checked later." },
-              note: { type: "string", description: "What a reader should look at here." },
+              path: { type: "string" },
+              line: { type: "number" },
+              commit: { type: "string", description: "A git oid the claim depends on." },
+              note: { type: "string", description: "What to look at there." },
             },
           },
         },

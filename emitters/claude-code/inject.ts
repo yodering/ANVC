@@ -59,7 +59,8 @@ import { appendDaily, logActivity, readActivity } from "../../protocol/activity"
 
 /** How long away before a session starts with what happened meanwhile. */
 const GAP_MS = 3 * 86_400_000;
-import { codexExit, contextOutput, hookInput, hookRepo, noteSession, outputOf, succeeded, toolCall } from "../../protocol/agents";
+import { codexExit, contextOutput, denyOutput, hookInput, hookRepo, noteSession, outputOf, succeeded, toolCall } from "../../protocol/agents";
+import { failedBefore, repeatReason } from "../../protocol/repeats";
 import { handoff } from "../../protocol/handoff";
 import { changedLines } from "../../protocol/drift";
 import { checkResult, dataMode, describe, listResults, sameNumber, type ResultView } from "../../protocol/results";
@@ -340,11 +341,11 @@ try {
   if (!input) process.exit(0);
   const { payload, agent, cwd } = input;
   const event = input.event ?? "";
-  // PreToolUse sees every shell command, for the one that makes a commit;
-  // any other is none of this hook's business, and isn't counted as a miss.
+  // PreToolUse sees every shell command: a commit gets the writing rules
+  // below, and any other is checked only against earlier failures.
   const tool = String(payload.tool_name ?? "");
   const command = String((payload.tool_input as { command?: unknown } | undefined)?.command ?? "");
-  if (event === "PreToolUse" && tool === "Bash" && !isCommit(command)) process.exit(0);
+  const shellOnly = event === "PreToolUse" && tool === "Bash" && !isCommit(command);
   // Not a repository, or one ANVC is turned off for: nothing is shown here.
   const here = hookRepo(cwd);
   if (!here) process.exit(0);
@@ -373,6 +374,18 @@ try {
   // server reads it from here when it files a checkpoint.
   if (payload.session_id) noteSession(agent, root, session);
   const seen = claimed(agentId ? `${session}--${agentId}` : session);
+  if (shellOnly) {
+    // A command that failed in an earlier session here and was never got to
+    // work there is stopped once, with that session's error, so the agent
+    // chooses before it runs it again. Running it a second time goes through.
+    const before = assist.moments.failures ? failedBefore(root, session, command) : null;
+    if (before && !seen.has(`@repeat:${before.key}`)) {
+      seen.add(`@repeat:${before.key}`);
+      note({ event, session, repo, injected: true, records: [], chars: repeatReason(before).length, stopped: before.key });
+      process.stdout.write(JSON.stringify(denyOutput(agent, repeatReason(before))));
+    }
+    process.exit(0);
+  }
   // One index for the whole run, built from every record the first time a
   // block asks for it. A session start asked up to seven times, and each
   // rebuilt it.
@@ -406,8 +419,8 @@ try {
   const unseen = (hits: Hit[]) => hits.filter((hit) => hit.source === "authored" && !hit.retired && !hit.retires && !seen.has(`@record:${hit.id}`));
   /** What a session or a subagent starts with: the open dead ends, and what stands. */
   const briefing = (db: Database) => [
-    block("Attempts recorded in this repository that were abandoned and not resolved:", unseen(openDeadEnds(db, MAX_ITEMS))),
-    block("Recently established, and still standing:", unseen(redToGreen(db, 2))),
+    block("Attempts that agents stopped here, and that nobody fixed since:", unseen(openDeadEnds(db, MAX_ITEMS))),
+    block("Recent work that still stands:", unseen(redToGreen(db, 2))),
   ];
 
   // What this session did before compaction, taken from the raw log. Claude
@@ -478,21 +491,21 @@ try {
       const reminder = withIndex((db) => {
         // Said in a project with nothing recorded too: the agent there hasn't
         // been told ANVC is on, and records nothing for want of being asked.
-        if (!records) return "anvc is on in this repository, and nothing is recorded yet. When you finish or give up on an attempt, record it with the anvc_checkpoint tool.";
+        if (!records) return "anvc is on in this repository, and it has no records yet. When you finish or stop an attempt, record it with the anvc_checkpoint tool.";
         const open = openDeadEnds(db, 999).length;
         // Retirement is named only when the person allowed it, and in the
         // words of their setting, so the agent knows whether it acts or asks.
         const mode = readPolicy(repo).retire;
         const retire = mode === "auto"
-          ? " If a record you are shown is no longer true, retire it with anvc_retire and your evidence."
+          ? " If a record is no longer true, retire it with anvc_retire and your evidence."
           : mode === "ask"
-            ? " If a record you are shown is no longer true, propose retiring it with anvc_retire and your evidence; the user approves."
+            ? " If a record is no longer true, propose to retire it with anvc_retire and your evidence. The user decides."
             : "";
         const waiting = retirements(db).pending.length;
-        return `anvc: ${records} records in this repository${open ? `, ${open} dead end${open === 1 ? "" : "s"} still open` : ""}. `
-          + `Each was true when it was written; check before relying on one. ${QUOTED} Before retrying something, search with the anvc_search tool. When you finish or give up on an attempt, record it with the anvc_checkpoint tool.`
+        return `anvc: this repository has ${records} record${records === 1 ? "" : "s"}${open ? ` and ${open} open dead end${open === 1 ? "" : "s"}` : ""}. `
+          + `Each was true when written. Check it before you rely on it. ${QUOTED} Before you try something again, search with anvc_search. When you finish or stop an attempt, record it with anvc_checkpoint.`
           + retire
-          + (waiting ? ` ${waiting} proposed retirement${waiting === 1 ? " is" : "s are"} waiting for the user.` : "");
+          + (waiting ? ` ${waiting} proposed retirement${waiting === 1 ? "" : "s"} wait${waiting === 1 ? "s" : ""} for the user.` : "");
       });
       // Work another session left mid-flight, from this agent or another one.
       // Records cover what an agent chose to save; this covers the rest.
@@ -694,7 +707,7 @@ try {
   // instructions. See line(). Credit after it, the way an agent cites a doc it
   // read. Without it the person never learns that anvc changed anything, and
   // a tool whose effect nobody sees gets uninstalled.
-  const head = `anvc: past records from this repository. ${QUOTED} Each was true when written; check before relying on one.`;
+  const head = `anvc: past records from this repository. ${QUOTED} Each was true when written. Check it before you rely on it.`;
   const credit = "If any of this changes what you do, tell the user it came from anvc.";
   // Pieces in order until the next would pass MAX_TOTAL, with room kept for
   // the head and the credit. One that doesn't fit is left out whole, and a

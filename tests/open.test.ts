@@ -147,7 +147,8 @@ test.skipIf(process.platform === "win32")("anvc_open opens the browser and answe
 test.skipIf(process.platform === "win32")("--desktop starts the desktop app on the project, or says how to get it", async () => {
   const repo = gitRepo({ commit: true });
   const { bin, opened } = fakes();
-  setEnv({ PATH: bin });
+  // A home of its own: the person's ~/.local/bin/anvc-desktop comes before the PATH, and would start the real app.
+  setEnv({ PATH: bin, HOME: tmp("anvc-open-home-") });
   expect(cli(repo, "open", "--desktop").out).toBe(`Opened the desktop app on ${samePath(repo)}.\n`);
   expect((await waitFor(opened)).trim()).toBe(`anvc-desktop --repo ${samePath(repo)}`);
   rmSync(join(bin, "anvc-desktop"));

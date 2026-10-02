@@ -7346,6 +7346,9 @@ function App() {
     return () => clearInterval(timer);
   }, [load]);
   const data = example ? exampleData : repo;
+  h2(() => {
+    document.title = data.name ? `ANVC · ${data.name}` : "ANVC";
+  }, [data.name]);
   const sessions = T2(() => groupSessions(data.turns), [data.turns]);
   const shown = T2(() => filterTurns(data.turns, query, outcome, session), [data.turns, query, outcome, session]);
   const scope = T2(() => filterTurns(data.turns, "", "all", session), [data.turns, session]);

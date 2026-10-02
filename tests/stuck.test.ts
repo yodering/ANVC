@@ -6,6 +6,7 @@
  */
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { writeAssist } from "../protocol/assist";
 import { appendRecord, ulid } from "../protocol/record";
 import { gitRepo, rawRows, rec, runHook, tmp, writeCapture } from "./helpers";
 
@@ -58,4 +59,40 @@ test("the same command failing a second time in a session is pointed out", async
     tool: "Bash", command: "bun test", ok: false, output: "Exit code 1\n1 fail",
   }], capture);
   expect(hook("inject", failure("bun test", "Exit code 1\n2 fail"))).toContain("`bun test` has now failed 2 times in this session");
+});
+
+test("a command that failed in an earlier session is stopped once, with that session's error", () => {
+  const { repo, capture, env } = setup();
+  writeCapture(repo, [
+    { session_id: "earlier", tool: "Bash", command: "pytest tests/validators/tests.py -q", ok: false, output: "bash: line 1: pytest: command not found" },
+    { session_id: "earlier", tool: "Bash", command: "git apply -p0 << 'PATCH'\n*** Begin Patch", ok: false, output: "error: unrecognized input" },
+    { session_id: "earlier", tool: "Bash", command: "python tests/runtests.py validators", ok: true, output: "OK" },
+    // Failed, then worked later in the same session: not a dead end.
+    { session_id: "earlier", tool: "Bash", command: "python reproduce.py", ok: false, output: "Traceback\nValueError: bad" },
+    { session_id: "earlier", tool: "Bash", command: "python reproduce.py", ok: true, output: "fixed" },
+  ], capture);
+  const before = (command: string, session = "now") => runHook("inject", "PreToolUse", {
+    hook_event_name: "PreToolUse", session_id: session, cwd: repo, tool_name: "Bash", tool_input: { command },
+  }, env)?.hookSpecificOutput;
+  // A missing tool matches any use of it.
+  const stopped = before("cd /testbed && pytest tests/forms_tests -x");
+  expect(stopped?.permissionDecision).toBe("deny");
+  expect(stopped?.permissionDecisionReason).toContain('`pytest tests/validators/tests.py -q` failed in an earlier session here');
+  expect(stopped?.permissionDecisionReason).toContain('"bash: line 1: pytest: command not found"');
+  expect(stopped?.permissionDecisionReason).toContain("After it, that session ran `python tests/runtests.py validators` without an error.");
+  // Run again, it goes through.
+  expect(before("pytest tests/forms_tests -x")).toBeUndefined();
+  expect(before("git apply -p0 << 'EOF'")?.permissionDecision).toBe("deny");
+  expect(before("python reproduce.py")).toBeUndefined();
+  expect(before("cat django/forms/fields.py")).toBeUndefined();
+  // The session that failed isn't stopped by its own failure.
+  expect(before("git apply -p0 << 'PATCH'", "earlier")).toBeUndefined();
+});
+
+test("with failed commands switched off, nothing is stopped", () => {
+  const { repo, capture, env } = setup();
+  writeCapture(repo, [{ session_id: "earlier", tool: "Bash", command: "pytest -q", ok: false, output: "pytest: command not found" }], capture);
+  writeAssist(repo, { moment: "failures", on: false });
+  const out = runHook("inject", "PreToolUse", { hook_event_name: "PreToolUse", session_id: "now", cwd: repo, tool_name: "Bash", tool_input: { command: "pytest -q" } }, env);
+  expect(out).toBeNull();
 });

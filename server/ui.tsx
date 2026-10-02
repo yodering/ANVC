@@ -666,6 +666,8 @@ function App() {
   }, [load]);
 
   const data = example ? exampleData : repo;
+  // The desktop app's window takes its title from this, so it follows a project opened from Folders.
+  useEffect(() => { document.title = data.name ? `ANVC · ${data.name}` : "ANVC"; }, [data.name]);
   const sessions = useMemo(() => groupSessions(data.turns), [data.turns]);
   const shown = useMemo(
     () => filterTurns(data.turns, query, outcome, session),

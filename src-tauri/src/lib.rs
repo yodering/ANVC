@@ -16,7 +16,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::{Manager, RunEvent, Url};
+use tauri::webview::Color;
+use tauri::{Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -94,7 +95,42 @@ fn show_failure(window: &tauri::WebviewWindow, message: &str, detail: &str) {
     let _ = window.eval(&script);
 }
 
+/// The one window. Built here rather than in tauri.conf.json, for its hooks.
+fn main_window(app: &tauri::App) -> tauri::Result<tauri::WebviewWindow> {
+    let browser = app.handle().clone();
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("ANVC")
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(900.0, 600.0)
+        .center()
+        .background_color(Color(10, 10, 10, 255))
+        // The page names its project in its title, and a project opened from
+        // Folders changes it, which the window's title follows.
+        .on_document_title_changed(|window, title| {
+            let _ = window.set_title(&title);
+        })
+        // Web links go to the person's browser. A new-window request never
+        // reached on_new_window here, so a link meant for a new window, as
+        // Open repository is, navigates instead, and that is caught.
+        .initialization_script(
+            "addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[target=_blank]'); if (a) { e.preventDefault(); location.href = a.href; } }, true);",
+        )
+        .on_navigation(move |url| {
+            let web = matches!(url.scheme(), "http" | "https");
+            // tauri.localhost is the app's own page on Windows.
+            let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "tauri.localhost"));
+            if web && !local {
+                #[allow(deprecated)]
+                let _ = browser.shell().open(url.as_str(), None);
+                return false;
+            }
+            true
+        })
+        .build()
+}
+
 fn start(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    main_window(app)?;
     let handle = app.handle().clone();
     if let Some(repo) = named_repo() {
         return open(&handle, repo, false);
@@ -130,10 +166,6 @@ fn open(app: &tauri::AppHandle, repo: PathBuf, or_list: bool) -> Result<(), Box<
         show_failure(&window, "That folder is not a git repository.", &repo.to_string_lossy());
         return Ok(());
     }
-    let _ = window.set_title(&format!(
-        "ANVC | {}",
-        repo.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-    ));
 
     let token = new_token()?;
     let (mut events, child) = app
@@ -167,9 +199,6 @@ fn open(app: &tauri::AppHandle, repo: PathBuf, or_list: bool) -> Result<(), Box<
                     // The first window gets the first port. One that didn't is
                     // another window, which opens on the project list.
                     let another = or_list && port.is_some() && port != PORTS.split('-').next().and_then(|p| p.parse().ok());
-                    if another {
-                        let _ = log_window.set_title("ANVC");
-                    }
                     let page = if another { "&page=folders" } else { "" };
                     if let Some(url) = port.and_then(|p| Url::parse(&format!("http://127.0.0.1:{p}/?t={token}{page}")).ok()) {
                         log_heard.store(true, Ordering::SeqCst);

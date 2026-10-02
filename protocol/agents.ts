@@ -204,6 +204,16 @@ export function contextOutput(agent: string, event: string, text: string): Paylo
 }
 
 /**
+ * Stops a tool call before it runs and tells the agent why. Claude Code's
+ * format; another agent is told the same thing as context, since whether it
+ * honours a denial wasn't checked.
+ */
+export function denyOutput(agent: string, reason: string): Payload {
+  if (agent !== "claude-code") return contextOutput(agent, "PreToolUse", reason);
+  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+}
+
+/**
  * Asks the agent to keep going instead of stopping. Cursor cannot block a
  * stop; it sends `followup_message` as the next message instead, which has
  * the same effect.

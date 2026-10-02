@@ -29,7 +29,7 @@ test("an injected record says its age, and names files that changed since", asyn
 
   const out = runHook("inject", "SessionStart", { session_id: "new", cwd: repo, hook_event_name: "SessionStart", source: "startup" }, { ANVC_STATE_DIR: state });
   const text = out!.hookSpecificOutput.additionalContext as string;
-  expect(text).toContain("Each was true when it was written");
+  expect(text).toContain("Each was true when written. Check it before you rely on it.");
   expect(text).toMatch(/"Cache the parser in a module Map" — "it broke" \(3 days ago; changed since: a\.ts\)/);
   expect(text).toMatch(/"Inline the lexer" — "it broke" \(yesterday\)/);
 });

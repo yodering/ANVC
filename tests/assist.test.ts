@@ -93,5 +93,5 @@ test("a moment that's off claims nothing, so it speaks once it's back on", async
   writeAssist(p.repo, { level: "auto" });
   expect(open()).toContain("Pool the redis connections");
   expect(failed()).toContain("this error was seen before");
-  expect(start()).toContain("records in this repository");
+  expect(start()).toContain("this repository has");
 });

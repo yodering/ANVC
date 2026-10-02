@@ -290,7 +290,7 @@ test("session start offers recent dead ends, once", async () => {
 
   const first = inject("SessionStart", { session_id: "s1", cwd: repo }, state);
   expect(first.context).toContain("Try a separate summarizer model");
-  expect(first.context?.toLowerCase()).toContain("abandoned");
+  expect(first.context?.toLowerCase()).toContain("dead end");
 
   expect(inject("SessionStart", { session_id: "s1", cwd: repo }, state).context).toBeNull();
 }, 60_000);
@@ -334,7 +334,7 @@ test("session start says what worked, not only what failed", async () => {
 test("an empty log says only that ANVC is on", async () => {
   const { repo, state } = fixture();
   expect(inject("SessionStart", { session_id: "s1", cwd: repo }, state).context)
-    .toBe("anvc is on in this repository, and nothing is recorded yet. When you finish or give up on an attempt, record it with the anvc_checkpoint tool.");
+    .toBe("anvc is on in this repository, and it has no records yet. When you finish or stop an attempt, record it with the anvc_checkpoint tool.");
 }, 60_000);
 
 test("it never breaks the session", async () => {

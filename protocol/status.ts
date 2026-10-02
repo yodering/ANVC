@@ -459,6 +459,13 @@ export function statusBrief(s: Status, session: string, max: number): string | n
 
 // ------------------------------------------------------------ for the agent
 
+/**
+ * Said by every tool that only records. A request that calls nothing but an
+ * ANVC tool re-reads the whole context for it: on this machine's sessions,
+ * 85 such requests were half of what ANVC cost.
+ */
+export const ALONGSIDE = "If you have another tool call to make, make this one in the same response. It needs no turn of its own.";
+
 export const STATUS_TOOLS = [
   {
     name: "anvc_status",
@@ -472,7 +479,8 @@ export const STATUS_TOOLS = [
     name: "anvc_status_item",
     description:
       "Add an item to Up next, or change one. Add one when the person asks for something you won't start right away. "
-      + "Mark an item doing when you start it, so the person sees what you're on, done when it's finished, and dropped if it's no longer wanted.",
+      + "Mark an item doing when you start it, so the person sees what you're on, done when it's finished, and dropped if it's no longer wanted. "
+      + ALONGSIDE,
     inputSchema: {
       type: "object",
       properties: {
